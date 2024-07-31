@@ -372,21 +372,21 @@ export class AllocationManager {
     // Throw error if:
     //    - subgraph deployment is not syncing,
     //    - subgraph deployment is failed
-    const status = context.indexingStatuses.find(
-      (status) => status.subgraphDeployment.ipfsHash == deployment.ipfsHash,
-    )
-    if (!status) {
-      throw indexerError(
-        IndexerErrorCode.IE077,
-        `Subgraph deployment, '${deployment.ipfsHash}', is not syncing`,
-      )
-    }
-    if (status?.health == 'failed') {
-      throw indexerError(
-        IndexerErrorCode.IE077,
-        `Subgraph deployment, '${deployment.ipfsHash}', has failed`,
-      )
-    }
+    // const status = context.indexingStatuses.find(
+    //   (status) => status.subgraphDeployment.ipfsHash == deployment.ipfsHash,
+    // )
+    // if (!status) {
+    //   throw indexerError(
+    //     IndexerErrorCode.IE077,
+    //     `Subgraph deployment, '${deployment.ipfsHash}', is not syncing`,
+    //   )
+    // }
+    // if (status?.health == 'failed') {
+    //   throw indexerError(
+    //     IndexerErrorCode.IE077,
+    //     `Subgraph deployment, '${deployment.ipfsHash}', has failed`,
+    //   )
+    // }
 
     logger.debug('Obtain a unique Allocation ID')
     const { allocationSigner, allocationId } = uniqueAllocationID(
