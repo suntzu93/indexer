@@ -131,11 +131,15 @@ export class GraphNode {
   // AxiosClient factory scoped by subgraph IFPS hash
   getQueryClient(deploymentIpfsHash: string): AxiosInstance {
     return axios.create({
-      baseURL: new URL(deploymentIpfsHash, this.queryBaseURL).toString(),
+      baseURL: this.getQueryEndpoint(deploymentIpfsHash),
       headers: { 'content-type': 'application/json' },
       responseType: 'text', // Don't parse responses as JSON
       transformResponse: (data) => data, // Don't transform responses
     })
+  }
+
+  getQueryEndpoint(deploymentIpfsHash: string): string {
+    return new URL(deploymentIpfsHash, this.queryBaseURL).toString()
   }
 
   public async subgraphDeployments(): Promise<SubgraphDeploymentID[]> {
@@ -149,16 +153,45 @@ export class GraphNode {
   ): Promise<SubgraphDeploymentAssignment[]> {
     try {
       this.logger.debug('Fetch subgraph deployment assignments')
-      const result = await this.status
+
+      // FIXME: remove this initial check for just node when graph-node releases
+      // https://github.com/graphprotocol/graph-node/pull/5551
+      const nodeOnlyResult = await this.status
         .query(gql`
           {
             indexingStatuses {
               subgraphDeployment: subgraph
               node
-              paused
             }
           }
         `)
+        .toPromise()
+
+      if (nodeOnlyResult.error) {
+        throw nodeOnlyResult.error
+      }
+
+      const withAssignments: string[] = nodeOnlyResult.data.indexingStatuses
+        .filter((result: QueryResult) => {
+          return result.node !== undefined
+        })
+        .map((result: QueryResult) => {
+          return result.subgraphDeployment
+        })
+
+      const result = await this.status
+        .query(
+          gql`
+          {
+            indexingStatuses($subgraphs) {
+              subgraphDeployment: subgraph
+              node
+              paused
+            }
+          }
+        `,
+          { subgraphs: withAssignments },
+        )
         .toPromise()
 
       if (result.error) {
@@ -174,7 +207,7 @@ export class GraphNode {
 
       type QueryResult = {
         subgraphDeployment: string
-        node: string
+        node: string | undefined
         paused: boolean | undefined
       }
 
