@@ -47,6 +47,7 @@ import pMap from 'p-map'
 
 export interface TransactionPreparationContext {
   activeAllocations: Allocation[]
+  recentlyClosedAllocations: Allocation[]
   currentEpoch: BigNumber
   indexingStatuses: IndexingStatus[]
 }
@@ -239,11 +240,17 @@ export class AllocationManager {
   }
 
   async prepareTransactions(actions: Action[]): Promise<PopulateTransactionResult[]> {
+    const currentEpoch = await this.network.contracts.epochManager.currentEpoch()
     const context: TransactionPreparationContext = {
       activeAllocations: await this.network.networkMonitor.allocations(
         AllocationStatus.ACTIVE,
       ),
-      currentEpoch: await this.network.contracts.epochManager.currentEpoch(),
+      recentlyClosedAllocations:
+        await this.network.networkMonitor.recentlyClosedAllocations(
+          currentEpoch.toNumber(),
+          2,
+        ),
+      currentEpoch,
       indexingStatuses: await this.graphNode.indexingStatus([]),
     }
     return await pMap(
@@ -371,29 +378,27 @@ export class AllocationManager {
     // Check that the subgraph is syncing and healthy before allocating
     // Throw error if:
     //    - subgraph deployment is not syncing,
-    //    - subgraph deployment is failed
-    // const status = context.indexingStatuses.find(
-    //   (status) => status.subgraphDeployment.ipfsHash == deployment.ipfsHash,
-    // )
-    // if (!status) {
-    //   throw indexerError(
-    //     IndexerErrorCode.IE077,
-    //     `Subgraph deployment, '${deployment.ipfsHash}', is not syncing`,
-    //   )
-    // }
-    // if (status?.health == 'failed') {
-    //   throw indexerError(
-    //     IndexerErrorCode.IE077,
-    //     `Subgraph deployment, '${deployment.ipfsHash}', has failed`,
-    //   )
-    // }
+
+    const status = context.indexingStatuses.find(
+      (status) => status.subgraphDeployment.ipfsHash == deployment.ipfsHash,
+    )
+    if (!status) {
+      throw indexerError(
+        IndexerErrorCode.IE077,
+        `Subgraph deployment, '${deployment.ipfsHash}', is not syncing`,
+      )
+    }
 
     logger.debug('Obtain a unique Allocation ID')
+    const activeAndRecentlyClosedAllocations: Allocation[] = [
+      ...context.recentlyClosedAllocations,
+      ...context.activeAllocations,
+    ]
     const { allocationSigner, allocationId } = uniqueAllocationID(
       this.network.transactionManager.wallet.mnemonic.phrase,
       context.currentEpoch.toNumber(),
       deployment,
-      context.activeAllocations.map((allocation) => allocation.id),
+      activeAndRecentlyClosedAllocations.map((allocation) => allocation.id),
     )
 
     // Double-check whether the allocationID already exists on chain, to
