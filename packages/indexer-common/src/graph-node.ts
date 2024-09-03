@@ -151,37 +151,37 @@ export class GraphNode {
   public async subgraphDeploymentsAssignments(
     subgraphStatus: SubgraphStatus,
   ): Promise<SubgraphDeploymentAssignment[]> {
-    return pRetry(
-      async () => {
-        this.logger.debug('Fetching subgraph deployment assignments')
+    try {
+      this.logger.debug('Fetch subgraph deployment assignments')
 
-        // FIXME: remove this initial check for just node when graph-node releases
-        // https://github.com/graphprotocol/graph-node/pull/5551
-        const nodeOnlyResult = await this.status
-          .query(gql`
-            {
-              indexingStatuses {
-                subgraphDeployment: subgraph
-                node
-              }
+      // FIXME: remove this initial check for just node when graph-node releases
+      // https://github.com/graphprotocol/graph-node/pull/5551
+      const nodeOnlyResult = await this.status
+        .query(gql`
+          {
+            indexingStatuses {
+              subgraphDeployment: subgraph
+              node
             }
-          `)
-          .toPromise()
+          }
+        `)
+        .toPromise()
 
-        if (nodeOnlyResult.error) {
-          this.logger.error('Error in nodeOnlyResult query', { error: nodeOnlyResult.error })
-          throw nodeOnlyResult.error
-        }
+      if (nodeOnlyResult.error) {
+        throw nodeOnlyResult.error
+      }
 
-        const withAssignments: string[] = nodeOnlyResult.data.indexingStatuses
-          .filter((result: QueryResult) => result.node !== undefined)
-          .map((result: QueryResult) => result.subgraphDeployment)
+      const withAssignments: string[] = nodeOnlyResult.data.indexingStatuses
+        .filter((result: QueryResult) => {
+          return result.node !== null && result.node !== undefined
+        })
+        .map((result: QueryResult) => {
+          return result.subgraphDeployment
+        })
 
-        this.logger.debug('Fetching detailed indexing statuses', { subgraphs: withAssignments })
-
-        const result = await this.status
-          .query(
-            gql`
+      const result = await this.status
+        .query(
+          gql`
             query indexingStatuses($subgraphs: [String!]!) {
               indexingStatuses(subgraphs: $subgraphs) {
                 subgraphDeployment: subgraph
@@ -190,73 +190,52 @@ export class GraphNode {
               }
             }
           `,
-            { subgraphs: withAssignments },
-          )
-          .toPromise()
+          { subgraphs: withAssignments },
+        )
+        .toPromise()
 
-        if (result.error) {
-          this.logger.error('Error in detailed indexing statuses query', { error: result.error })
-          throw result.error
-        }
+      if (result.error) {
+        throw result.error
+      }
 
-        if (!result.data?.indexingStatuses || result.data.indexingStatuses.length === 0) {
-          this.logger.warn(`No 'indexingStatuses' data returned from index nodes`, {
-            data: result.data,
-          })
-          return []
-        }
-
-        this.logger.debug('Successfully fetched indexing statuses', {
-          count: result.data.indexingStatuses.length,
+      if (!result.data.indexingStatuses || result.data.length === 0) {
+        this.logger.warn(`No 'indexingStatuses' data returned from index nodes`, {
+          data: result.data,
         })
+        return []
+      }
 
-        type QueryResult = {
-          subgraphDeployment: string
-          node: string | undefined
-          paused: boolean | undefined
-        }
+      type QueryResult = {
+        subgraphDeployment: string
+        node: string | undefined
+        paused: boolean | undefined
+      }
 
-        return result.data.indexingStatuses
-          .filter((status: QueryResult) => {
-            if (subgraphStatus === SubgraphStatus.ACTIVE) {
-              return (
-                status.paused === false ||
-                (status.paused === undefined && status.node !== 'removed')
-              )
-            } else if (subgraphStatus === SubgraphStatus.PAUSED) {
-              return status.node === 'removed' || status.paused === true
-            } else if (subgraphStatus === SubgraphStatus.ALL) {
-              return true
-            }
-          })
-          .map((status: QueryResult) => {
-            return {
-              id: new SubgraphDeploymentID(status.subgraphDeployment),
-              node: status.node,
-              paused: status.paused ?? status.node === 'removed',
-            }
-          })
-      },
-      {
-        retries: 5,
-        onFailedAttempt: (error) => {
-          const err = indexerError(IndexerErrorCode.IE018, error)
-          this.logger.warn(`Attempt to query indexing status API failed, retrying...`, {
-            attempt: error.attemptNumber,
-            retriesLeft: error.retriesLeft,
-            err: err.message,
-            stack: err.stack,
-          })
-        },
-      } as Options
-    ).catch((error) => {
+      return result.data.indexingStatuses
+        .filter((status: QueryResult) => {
+          if (subgraphStatus === SubgraphStatus.ACTIVE) {
+            return (
+              status.paused === false ||
+              (status.paused === undefined && status.node !== 'removed')
+            )
+          } else if (subgraphStatus === SubgraphStatus.PAUSED) {
+            return status.node === 'removed' || status.paused === true
+          } else if (subgraphStatus === SubgraphStatus.ALL) {
+            return true
+          }
+        })
+        .map((status: QueryResult) => {
+          return {
+            id: new SubgraphDeploymentID(status.subgraphDeployment),
+            node: status.node,
+            paused: status.paused ?? status.node === 'removed',
+          }
+        })
+    } catch (error) {
       const err = indexerError(IndexerErrorCode.IE018, error)
-      this.logger.error(`Failed to query indexing status API after all retries`, {
-        err: err.message,
-        stack: err.stack,
-      })
+      this.logger.error(`Failed to query indexing status API`, { err })
       throw err
-    })
+    }
   }
 
   async indexNodes(): Promise<indexNode[]> {
