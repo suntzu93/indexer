@@ -615,8 +615,8 @@ export class AllocationReceiptCollector implements ReceiptCollector {
       (tx) =>
         !ravsLastNotFinal.find(
           (rav) =>
-            toAddress(rav.senderAddress) === toAddress(tx.sender.id) &&
-            toAddress(rav.allocationId) === toAddress(tx.allocationID),
+            toAddress(rav.senderAddress).toLowerCase() === toAddress(tx.sender.id).toLowerCase() &&
+            toAddress(rav.allocationId).toLowerCase() === toAddress(tx.allocationID).toLowerCase(),
         ),
     )
 
@@ -624,11 +624,11 @@ export class AllocationReceiptCollector implements ReceiptCollector {
 
     if (redeemedRavsNotOnOurDatabase.length === 0) {
       this.logger.debug('Detailed comparison:', ravsLastNotFinal.map(rav => ({
-        ravSender: toAddress(rav.senderAddress),
-        ravAllocation: toAddress(rav.allocationId),
+        ravSender: toAddress(rav.senderAddress).toLowerCase(),
+        ravAllocation: toAddress(rav.allocationId).toLowerCase(),
         matchingTx: tapSubgraphResponse.transactions.find(tx => 
-          toAddress(rav.senderAddress) === toAddress(tx.sender.id) &&
-          toAddress(rav.allocationId) === toAddress(tx.allocationID)
+          toAddress(rav.senderAddress).toLowerCase() === toAddress(tx.sender.id).toLowerCase() &&
+          toAddress(rav.allocationId).toLowerCase() === toAddress(tx.allocationID).toLowerCase()
         )
       })))
     }
@@ -653,8 +653,8 @@ export class AllocationReceiptCollector implements ReceiptCollector {
         (rav) =>
           !tapSubgraphResponse.transactions.find(
             (tx) =>
-              toAddress(rav.senderAddress) === toAddress(tx.sender.id) &&
-              toAddress(rav.allocationId) === toAddress(tx.allocationID),
+              toAddress(rav.senderAddress).toLowerCase() === toAddress(tx.sender.id).toLowerCase() &&
+              toAddress(rav.allocationId).toLowerCase() === toAddress(tx.allocationID).toLowerCase(),
           ),
       )
 
