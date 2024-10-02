@@ -187,6 +187,7 @@ export const Caip2ByChainAlias: { [key: string]: string } = {
   moonbeam: 'eip155:1284',
   fuse: 'eip155:122',
   blast: 'eip155:81457',
+  'blast-mainnet': 'eip155:81457',
 }
 
 export const Caip2ByChainId: { [key: number]: string } = {

@@ -378,15 +378,16 @@ export class AllocationManager {
     // Check that the subgraph is syncing and healthy before allocating
     // Throw error if:
     //    - subgraph deployment is not syncing,
-    const status = context.indexingStatuses.find(
-      (status) => status.subgraphDeployment.ipfsHash == deployment.ipfsHash,
-    )
-    if (!status) {
-      throw indexerError(
-        IndexerErrorCode.IE077,
-        `Subgraph deployment, '${deployment.ipfsHash}', is not syncing`,
-      )
-    }
+
+    // const status = context.indexingStatuses.find(
+    //   (status) => status.subgraphDeployment.ipfsHash == deployment.ipfsHash,
+    // )
+    // if (!status) {
+    //   throw indexerError(
+    //     IndexerErrorCode.IE077,
+    //     `Subgraph deployment, '${deployment.ipfsHash}', is not syncing`,
+    //   )
+    // }
 
     logger.debug('Obtain a unique Allocation ID')
     const activeAndRecentlyClosedAllocations: Allocation[] = [
