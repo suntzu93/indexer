@@ -518,11 +518,13 @@ export class AllocationReceiptCollector implements ReceiptCollector {
     const allocationIds: string[] = ravs.map((rav) =>
       rav.getSignedRAV().rav.allocationId.toLowerCase(),
     )
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let allAllocations: any[] = [];
     const batchSize = 100;
     
     for (let i = 0; i < allocationIds.length; i += batchSize) {
       const batchIds = allocationIds.slice(i, i + batchSize);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const returnedAllocations: any[] = (
         await this.networkSubgraph.query(
           gql`
@@ -638,7 +640,7 @@ export class AllocationReceiptCollector implements ReceiptCollector {
               toAddress(rav.allocationId) === toAddress(tx.allocationID),
           ),
       )
-      
+
     this.logger.info(`Found ${nonRedeemedRavs.length} non-redeemed RAVs`)
 
     // we use the subgraph timestamp to make decisions
