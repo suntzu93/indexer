@@ -620,17 +620,21 @@ export class AllocationReceiptCollector implements ReceiptCollector {
         ),
     )
 
-    this.logger.info(`Found ${redeemedRavsNotOnOurDatabase.length} redeemed RAVs not on our database`)
+    const matchingRavsInDatabase = tapSubgraphResponse.transactions.filter(
+      (tx) =>
+        ravsLastNotFinal.some(
+          (rav) =>
+            toAddress(rav.senderAddress).toLowerCase() === toAddress(tx.sender.id).toLowerCase() &&
+            toAddress(rav.allocationId).toLowerCase() === toAddress(tx.allocationID).toLowerCase(),
+        ),
+    )
 
-    if (redeemedRavsNotOnOurDatabase.length === 0) {
-      this.logger.debug('Detailed comparison:', ravsLastNotFinal.map(rav => ({
-        ravSender: toAddress(rav.senderAddress).toLowerCase(),
-        ravAllocation: toAddress(rav.allocationId).toLowerCase(),
-        matchingTx: tapSubgraphResponse.transactions.find(tx => 
-          toAddress(rav.senderAddress).toLowerCase() === toAddress(tx.sender.id).toLowerCase() &&
-          toAddress(rav.allocationId).toLowerCase() === toAddress(tx.allocationID).toLowerCase()
-        )
-      })))
+    this.logger.info(`TAP Subgraph transactions: ${tapSubgraphResponse.transactions.length}`)
+    this.logger.info(`Matching RAVs in our database: ${matchingRavsInDatabase.length}`)
+    this.logger.info(`Redeemed RAVs not in our database: ${redeemedRavsNotOnOurDatabase.length}`)
+
+    if (redeemedRavsNotOnOurDatabase.length === 0 && matchingRavsInDatabase.length > 0) {
+      this.logger.info("All transactions from TAP Subgraph have matching RAVs in our database.")
     }
 
     // for each transaction that is not redeemed on our database
