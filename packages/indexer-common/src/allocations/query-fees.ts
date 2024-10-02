@@ -482,6 +482,7 @@ export class AllocationReceiptCollector implements ReceiptCollector {
     }).tryMap(
       async () => {
         let ravs = await this.pendingRAVs()
+        this.logger.info(`Retrieved ${ravs.length} pending RAVs`)
         if (ravs.length === 0) {
           this.logger.info(`No pending RAVs to process`)
           return []
@@ -490,6 +491,7 @@ export class AllocationReceiptCollector implements ReceiptCollector {
           ravs = await this.filterAndUpdateRavs(ravs)
         }
         const allocations: Allocation[] = await this.getAllocationsfromAllocationIds(ravs)
+        this.logger.info(`Retrieved ${allocations.length} allocations for pending RAVs`)
         this.logger.info(
           `Retrieved allocations for pending RAVs \n: ${JSON.stringify(allocations)}`,
         )
@@ -610,6 +612,7 @@ export class AllocationReceiptCollector implements ReceiptCollector {
             toAddress(rav.allocationId) === toAddress(tx.allocationID),
         ),
     )
+    this.logger.info(`Found ${redeemedRavsNotOnOurDatabase.length} redeemed RAVs not on our database`)
 
     // for each transaction that is not redeemed on our database
     // but was redeemed on the blockchain, update it to redeemed
@@ -623,6 +626,7 @@ export class AllocationReceiptCollector implements ReceiptCollector {
       }
     }
 
+
     // Filter unfinalized RAVS fetched from DB, keeping RAVs that have not yet been redeemed on-chain
     const nonRedeemedRavs = ravsLastNotFinal
       .filter((rav) => !!rav.redeemedAt)
@@ -634,6 +638,8 @@ export class AllocationReceiptCollector implements ReceiptCollector {
               toAddress(rav.allocationId) === toAddress(tx.allocationID),
           ),
       )
+      
+    this.logger.info(`Found ${nonRedeemedRavs.length} non-redeemed RAVs`)
 
     // we use the subgraph timestamp to make decisions
     // block timestamp minus 1 minute (because of blockchain timestamp uncertainty)
