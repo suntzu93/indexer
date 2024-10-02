@@ -622,7 +622,7 @@ export class AllocationReceiptCollector implements ReceiptCollector {
 
     const matchingRavsInDatabase = tapSubgraphResponse.transactions.filter(
       (tx) =>
-        ravsLastNotFinal.some(
+        ravsLastNotFinal.find(
           (rav) =>
             toAddress(rav.senderAddress).toLowerCase() === toAddress(tx.sender.id).toLowerCase() &&
             toAddress(rav.allocationId).toLowerCase() === toAddress(tx.allocationID).toLowerCase(),
