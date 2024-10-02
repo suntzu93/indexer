@@ -492,9 +492,9 @@ export class AllocationReceiptCollector implements ReceiptCollector {
         }
         const allocations: Allocation[] = await this.getAllocationsfromAllocationIds(ravs)
         this.logger.info(`Retrieved ${allocations.length} allocations for pending RAVs`)
-        this.logger.debug(
-          `Retrieved allocations for pending RAVs \n: ${JSON.stringify(allocations)}`,
-        )
+        // this.logger.debug(
+        //   `Retrieved allocations for pending RAVs \n: ${JSON.stringify(allocations)}`,
+        // )
         return ravs
           .map((rav) => {
             const signedRav = rav.getSignedRAV()
@@ -606,6 +606,11 @@ export class AllocationReceiptCollector implements ReceiptCollector {
   ): Promise<ReceiptAggregateVoucher[]> {
     const tapSubgraphResponse = await this.findTransactionsForRavs(ravsLastNotFinal)
 
+    this.logger.debug('TAP Subgraph Response:', {
+      transactions: tapSubgraphResponse.transactions,
+      meta: tapSubgraphResponse._meta
+    })
+
     const redeemedRavsNotOnOurDatabase = tapSubgraphResponse.transactions.filter(
       (tx) =>
         !ravsLastNotFinal.find(
@@ -614,7 +619,19 @@ export class AllocationReceiptCollector implements ReceiptCollector {
             toAddress(rav.allocationId) === toAddress(tx.allocationID),
         ),
     )
+
     this.logger.info(`Found ${redeemedRavsNotOnOurDatabase.length} redeemed RAVs not on our database`)
+
+    if (redeemedRavsNotOnOurDatabase.length === 0) {
+      this.logger.debug('Detailed comparison:', ravsLastNotFinal.map(rav => ({
+        ravSender: toAddress(rav.senderAddress),
+        ravAllocation: toAddress(rav.allocationId),
+        matchingTx: tapSubgraphResponse.transactions.find(tx => 
+          toAddress(rav.senderAddress) === toAddress(tx.sender.id) &&
+          toAddress(rav.allocationId) === toAddress(tx.allocationID)
+        )
+      })))
+    }
 
     // for each transaction that is not redeemed on our database
     // but was redeemed on the blockchain, update it to redeemed
