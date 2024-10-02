@@ -1164,7 +1164,12 @@ export class AllocationReceiptCollector implements ReceiptCollector {
               .toLowerCase()
               .replace('0x', '')}'
           `
-
+    this.logger.debug('Executing SQL query to mark RAV as redeemed:', {
+      query,
+      allocationId: allocationId.toString(),
+      senderAddress: senderAddress.toString(),
+      timestamp: timestamp || 'NOW()',
+    })
     await this.models.receiptAggregateVouchers.sequelize?.query(query)
   }
 
