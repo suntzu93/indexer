@@ -492,7 +492,7 @@ export class AllocationReceiptCollector implements ReceiptCollector {
         }
         const allocations: Allocation[] = await this.getAllocationsfromAllocationIds(ravs)
         this.logger.info(`Retrieved ${allocations.length} allocations for pending RAVs`)
-        this.logger.info(
+        this.logger.debug(
           `Retrieved allocations for pending RAVs \n: ${JSON.stringify(allocations)}`,
         )
         return ravs
