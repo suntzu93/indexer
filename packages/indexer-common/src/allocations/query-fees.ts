@@ -504,7 +504,7 @@ export class AllocationReceiptCollector implements ReceiptCollector {
               sender: rav.senderAddress,
             }
           })
-          .filter((rav) => rav.allocation !== undefined) as RavWithAllocation[] // this is safe because we filter out undefined allocations
+          .filter((rav) => rav.allocation !== undefined) as RavWithAllocation[]
       },
       { onError: (err) => this.logger.error(`Failed to query pending RAVs`, { err }) },
     )
@@ -516,47 +516,53 @@ export class AllocationReceiptCollector implements ReceiptCollector {
     const allocationIds: string[] = ravs.map((rav) =>
       rav.getSignedRAV().rav.allocationId.toLowerCase(),
     )
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const returnedAllocations: any[] = (
-      await this.networkSubgraph.query(
-        gql`
-          query allocations($allocationIds: [String!]!) {
-            allocations(where: { id_in: $allocationIds }) {
-              id
-              status
-              subgraphDeployment {
+    let allAllocations: any[] = [];
+    const batchSize = 100;
+    
+    for (let i = 0; i < allocationIds.length; i += batchSize) {
+      const batchIds = allocationIds.slice(i, i + batchSize);
+      const returnedAllocations: any[] = (
+        await this.networkSubgraph.query(
+          gql`
+            query allocations($allocationIds: [String!]!, $first: Int!, $skip: Int!) {
+              allocations(where: { id_in: $allocationIds }, first: $first, skip: $skip) {
                 id
-                stakedTokens
-                signalledTokens
-                queryFeesAmount
-                deniedAt
+                status
+                subgraphDeployment {
+                  id
+                  stakedTokens
+                  signalledTokens
+                  queryFeesAmount
+                  deniedAt
+                }
+                indexer {
+                  id
+                }
+                allocatedTokens
+                createdAtEpoch
+                createdAtBlockHash
+                closedAtEpoch
+                closedAtEpoch
+                closedAtBlockHash
+                poi
+                queryFeeRebates
+                queryFeesCollected
               }
-              indexer {
-                id
-              }
-              allocatedTokens
-              createdAtEpoch
-              createdAtBlockHash
-              closedAtEpoch
-              closedAtEpoch
-              closedAtBlockHash
-              poi
-              queryFeeRebates
-              queryFeesCollected
             }
-          }
-        `,
-        { allocationIds },
-      )
-    ).data.allocations
+          `,
+          { allocationIds: batchIds, first: batchSize, skip: 0 },
+        )
+      ).data.allocations;
+      
+      allAllocations = allAllocations.concat(returnedAllocations);
+    }
 
-    if (returnedAllocations.length == 0) {
+    if (allAllocations.length == 0) {
       this.logger.error(
         `No allocations returned for ${allocationIds} in network subgraph`,
       )
     }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return returnedAllocations.map((x) => parseGraphQLAllocation(x, this.protocolNetwork))
+    return allAllocations.map((x) => parseGraphQLAllocation(x, this.protocolNetwork))
   }
 
   private getSignedRAVsEventual(
@@ -585,8 +591,6 @@ export class AllocationReceiptCollector implements ReceiptCollector {
     )
   }
 
-  // redeem only if last is true
-  // Later can add order and limit
   private async pendingRAVs(): Promise<ReceiptAggregateVoucher[]> {
     return await this.models.receiptAggregateVouchers.findAll({
       where: { last: true, final: false },
