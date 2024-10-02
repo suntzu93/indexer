@@ -662,6 +662,7 @@ export function defineQueryFeeModels(sequelize: Sequelize): QueryFeeModels {
       error_log: {
         type: DataTypes.TEXT,
         allowNull: false,
+        defaultValue: '',
       },
     },
     {
