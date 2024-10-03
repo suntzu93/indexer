@@ -619,23 +619,8 @@ export class AllocationReceiptCollector implements ReceiptCollector {
             toAddress(rav.allocationId).toLowerCase() === toAddress(tx.allocationID).toLowerCase(),
         ),
     )
-
-    const matchingRavsInDatabase = tapSubgraphResponse.transactions.filter(
-      (tx) =>
-        ravsLastNotFinal.find(
-          (rav) =>
-            toAddress(rav.senderAddress).toLowerCase() === toAddress(tx.sender.id).toLowerCase() &&
-            toAddress(rav.allocationId).toLowerCase() === toAddress(tx.allocationID).toLowerCase(),
-        ),
-    )
-
-    this.logger.info(`TAP Subgraph transactions: ${tapSubgraphResponse.transactions.length}`)
-    this.logger.info(`Matching RAVs in our database: ${matchingRavsInDatabase.length}`)
+    
     this.logger.info(`Redeemed RAVs not in our database: ${redeemedRavsNotOnOurDatabase.length}`)
-
-    if (redeemedRavsNotOnOurDatabase.length === 0 && matchingRavsInDatabase.length > 0) {
-      this.logger.info("All transactions from TAP Subgraph have matching RAVs in our database.")
-    }
 
     // for each transaction that is not redeemed on our database
     // but was redeemed on the blockchain, update it to redeemed
