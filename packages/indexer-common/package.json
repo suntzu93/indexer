@@ -22,15 +22,15 @@
     "clean": "rm -rf ./node_modules ./dist ./tsconfig.tsbuildinfo"
   },
   "dependencies": {
-    "@graphprotocol/common-ts": "2.0.9",
+    "@graphprotocol/common-ts": "2.0.10",
     "@graphprotocol/cost-model": "0.1.18",
     "@semiotic-labs/tap-contracts-bindings": "^1.2.1",
     "@thi.ng/heaps": "1.2.38",
     "@types/lodash.clonedeep": "^4.5.7",
     "@types/lodash.intersection": "^4.4.7",
     "@types/lodash.xor": "^4.5.7",
-    "@urql/core": "2.4.4",
-    "@urql/exchange-execute": "1.2.2",
+    "@urql/core": "3.1.0",
+    "@urql/exchange-execute": "2.1.0",
     "axios": "1.6.2",
     "body-parser": "1.20.2",
     "cors": "2.8.5",
@@ -84,7 +84,7 @@
     "ethers": "5.7.0",
     "sequelize": "6.33.0",
     "@ethersproject/bignumber": "5.7.0",
-    "@urql/exchange-execute/@urql/core": "2.4.4"
+    "@urql/exchange-execute/@urql/core": "3.1.0"
   },
   "babel": {
     "presets": [],

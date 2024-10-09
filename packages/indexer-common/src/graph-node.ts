@@ -153,44 +153,18 @@ export class GraphNode {
   ): Promise<SubgraphDeploymentAssignment[]> {
     try {
       this.logger.debug('Fetch subgraph deployment assignments')
-
-      // FIXME: remove this initial check for just node when graph-node releases
-      // https://github.com/graphprotocol/graph-node/pull/5551
-      const nodeOnlyResult = await this.status
-        .query(gql`
-          {
-            indexingStatuses {
-              subgraphDeployment: subgraph
-              node
-            }
-          }
-        `)
-        .toPromise()
-
-      if (nodeOnlyResult.error) {
-        throw nodeOnlyResult.error
-      }
-
-      const withAssignments: string[] = nodeOnlyResult.data.indexingStatuses
-        .filter((result: QueryResult) => {
-          return result.node !== null && result.node !== undefined
-        })
-        .map((result: QueryResult) => {
-          return result.subgraphDeployment
-        })
-
       const result = await this.status
         .query(
           gql`
-            query indexingStatuses($subgraphs: [String!]!) {
-              indexingStatuses(subgraphs: $subgraphs) {
+            {
+              indexingStatuses {
                 subgraphDeployment: subgraph
                 node
                 paused
               }
             }
           `,
-          { subgraphs: withAssignments },
+          undefined,
         )
         .toPromise()
 
@@ -242,14 +216,17 @@ export class GraphNode {
     try {
       this.logger.trace(`Querying indexing statuses`)
       const result = await this.status
-        .query(gql`
-          {
-            indexingStatuses {
-              subgraphDeployment: subgraph
-              node
+        .query(
+          gql`
+            {
+              indexingStatuses {
+                subgraphDeployment: subgraph
+                node
+              }
             }
-          }
-        `)
+          `,
+          undefined,
+        )
         .toPromise()
 
       if (result.error) {
