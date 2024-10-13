@@ -2,9 +2,11 @@ import {
   defineQueryFeeModels,
   GraphNode,
   Network,
+  EscrowAccounts,
   QueryFeeModels,
   TapSubgraphResponse,
   TapCollector,
+  Allocation,
 } from '@graphprotocol/indexer-common'
 import {
   Address,
@@ -101,6 +103,7 @@ const setupEach = async () => {
         _meta: {
           block: {
             timestamp: Date.now(),
+            hash: 'str',
           },
         },
       }
@@ -460,6 +463,7 @@ describe('TAP', () => {
           return {
             transactions: [
               {
+                id: 'test',
                 allocationID: ALLOCATION_ID_2.toString().toLowerCase().replace('0x', ''),
                 timestamp: redeemDateSecs,
                 sender: {
@@ -470,6 +474,7 @@ describe('TAP', () => {
             _meta: {
               block: {
                 timestamp: nowSecs,
+                hash: 'test',
               },
             },
           }
@@ -499,6 +504,36 @@ describe('TAP', () => {
     },
     timeout,
   )
+
+  test('test `submitRAVs` with escrow account lower on balance', async () => {
+    // mock redeemRav to not call the blockchain
+    const redeemRavFunc = jest
+      .spyOn(tapCollector, 'redeemRav')
+      .mockImplementation(jest.fn())
+
+    // mock fromResponse to return the correct escrow account
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    jest.spyOn(EscrowAccounts, 'fromResponse').mockImplementation((_) => {
+      const balances = new Map<Address, bigint>()
+      balances.set(SENDER_ADDRESS_1, 40000000000000n)
+      return new EscrowAccounts(balances)
+    })
+
+    const [first] = await queryFeeModels.receiptAggregateVouchers.findAll()
+    const rav = first.getSignedRAV()
+
+    const ravWithAllocation = {
+      rav,
+      allocation: {} as Allocation,
+      sender: first.senderAddress,
+    }
+    const ravs = [ravWithAllocation, ravWithAllocation, ravWithAllocation]
+    // submit 3 ravs
+    await tapCollector['submitRAVs'](ravs)
+    // expect to be able to redeem only 2 of them
+    // because of the balance
+    expect(redeemRavFunc).toBeCalledTimes(2)
+  })
 })
 
 function createLastNonFinalRav(
