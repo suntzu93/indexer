@@ -1,6 +1,6 @@
 {
   "name": "@graphprotocol/indexer-common",
-  "version": "0.21.5",
+  "version": "0.21.6-2",
   "description": "Common library for Graph Protocol indexer components",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -22,7 +22,7 @@
     "clean": "rm -rf ./node_modules ./dist ./tsconfig.tsbuildinfo"
   },
   "dependencies": {
-    "@graphprotocol/common-ts": "2.0.10",
+    "@graphprotocol/common-ts": "2.0.11",
     "@graphprotocol/cost-model": "0.1.18",
     "@semiotic-labs/tap-contracts-bindings": "^1.2.1",
     "@thi.ng/heaps": "1.2.38",

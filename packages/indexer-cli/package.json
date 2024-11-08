@@ -1,6 +1,6 @@
 {
   "name": "@graphprotocol/indexer-cli",
-  "version": "0.21.5",
+  "version": "0.21.6-2",
   "description": "Indexer CLI for The Graph Network",
   "main": "./dist/cli.js",
   "files": [
@@ -26,8 +26,8 @@
     "test:watch": "jest --watch --detectOpenHandles --verbose"
   },
   "dependencies": {
-    "@graphprotocol/common-ts": "2.0.10",
-    "@graphprotocol/indexer-common": "^0.21.5",
+    "@graphprotocol/common-ts": "2.0.11",
+    "@graphprotocol/indexer-common": "^0.21.6-2",
     "@iarna/toml": "2.2.5",
     "@thi.ng/iterators": "5.1.74",
     "@urql/core": "3.1.0",
