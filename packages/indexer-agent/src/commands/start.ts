@@ -299,13 +299,6 @@ export const start = {
         default: 'auto',
         group: 'Indexer Infrastructure',
       })
-      .option('polling-interval', {
-        description: 'Polling interval for data collection',
-        type: 'number',
-        required: false,
-        default: 120_000,
-        group: 'Indexer Infrastructure',
-      })
       .option('auto-allocation-min-batch-size', {
         description: `Minimum number of allocation transactions inside a batch for auto allocation management. No obvious upperbound, with default of 1`,
         type: 'number',
@@ -540,6 +533,7 @@ export async function run(
     username: argv.postgresUsername,
     password: argv.postgresPassword,
     database: argv.postgresDatabase,
+    sslEnabled: argv.postgresSslEnabled,
     poolMin: 0,
     poolMax: argv.postgresPoolSize,
   })

@@ -157,14 +157,17 @@ export class GraphNode {
       // FIXME: remove this initial check for just node when graph-node releases
       // https://github.com/graphprotocol/graph-node/pull/5551
       const nodeOnlyResult = await this.status
-        .query(gql`
-          {
-            indexingStatuses {
-              subgraphDeployment: subgraph
-              node
+        .query(
+          gql`
+            {
+              indexingStatuses {
+                subgraphDeployment: subgraph
+                node
+              }
             }
-          }
-        `)
+          `,
+          undefined,
+        )
         .toPromise()
 
       if (nodeOnlyResult.error) {
@@ -242,14 +245,17 @@ export class GraphNode {
     try {
       this.logger.trace(`Querying indexing statuses`)
       const result = await this.status
-        .query(gql`
-          {
-            indexingStatuses {
-              subgraphDeployment: subgraph
-              node
+        .query(
+          gql`
+            {
+              indexingStatuses {
+                subgraphDeployment: subgraph
+                node
+              }
             }
-          }
-        `)
+          `,
+          undefined,
+        )
         .toPromise()
 
       if (result.error) {

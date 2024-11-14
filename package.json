@@ -16,7 +16,6 @@
     "release": "./scripts/release.sh",
     "test": "lerna --concurrency 1 run test --stream --ignore @graphprotocol/indexer-service",
     "test:ci": "lerna --concurrency 1 run test:ci --stream --ignore @graphprotocol/indexer-service",
-    "update-common-ts": "./scripts/update-common-ts.sh 1.8.3",
     "clean": "lerna run clean && rm -rf ./node_modules",
     "compile": "lerna run compile"
   },
@@ -29,8 +28,8 @@
     "sequelize": "6.33.0",
     "@ethersproject/bignumber": "5.7.0",
     "@ethersproject/providers": "5.7.0",
-    "@urql/core": "2.4.4",
-    "@urql/exchange-execute": "1.2.2",
+    "@urql/core": "3.1.0",
+    "@urql/exchange-execute": "2.1.0",
     "punycode": "2.3.1",
     "uri-js": "4.2.2"
   },
@@ -39,8 +38,8 @@
     "sequelize": "6.33.0",
     "@ethersproject/bignumber": "5.7.0",
     "@ethersproject/providers": "5.7.0",
-    "@urql/core": "2.4.4",
-    "@urql/exchange-execute": "1.2.2",
+    "@urql/core": "3.1.0",
+    "@urql/exchange-execute": "2.1.0",
     "graphql": "16.8.0"
   },
   "engines": {

@@ -27,10 +27,14 @@ import {
 import { BigNumber } from 'ethers'
 import pReduce from 'p-reduce'
 import { TAPSubgraph } from '../tap-subgraph'
-import { NetworkSubgraph } from '../network-subgraph'
+import { NetworkSubgraph, QueryResult } from '../network-subgraph'
 import gql from 'graphql-tag'
+import { getEscrowAccounts } from './escrow-accounts'
 
-const RAV_CHECK_INTERVAL_MS = 30_000
+// every 15 minutes
+const RAV_CHECK_INTERVAL_MS = 900_000
+
+const PAGE_SIZE = 1000
 
 interface RavMetrics {
   ravRedeemsSuccess: Counter<string>
@@ -57,23 +61,39 @@ interface ValidRavs {
   eligible: RavWithAllocation[]
 }
 
-interface RavWithAllocation {
+export interface RavWithAllocation {
   rav: SignedRAV
   allocation: Allocation
   sender: Address
 }
 
 export interface TapSubgraphResponse {
-  transactions: {
-    allocationID: string
+  transactions: TapTransaction[]
+  _meta: TapMeta
+}
+
+interface TapMeta {
+  block: {
     timestamp: number
-    sender: {
-      id: string
-    }
-  }[]
-  _meta: {
+    hash: string
+  }
+}
+
+export interface TapTransaction {
+  id: string
+  allocationID: string
+  timestamp: number
+  sender: {
+    id: string
+  }
+}
+
+export interface AllocationsResponse {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  allocations: any[]
+  meta: {
     block: {
-      timestamp: number
+      hash: string
     }
   }
 }
@@ -90,11 +110,12 @@ export class TapCollector {
   declare tapSubgraph: TAPSubgraph
   declare networkSubgraph: NetworkSubgraph
   declare finalityTime: number
+  declare indexerAddress: Address
 
   // eslint-disable-next-line @typescript-eslint/no-empty-function -- Private constructor to prevent direct instantiation
   private constructor() {}
 
-  public static async create({
+  public static create({
     logger,
     metrics,
     transactionManager,
@@ -104,7 +125,7 @@ export class TapCollector {
     networkSpecification,
     tapSubgraph,
     networkSubgraph,
-  }: TapCollectorOptions): Promise<TapCollector> {
+  }: TapCollectorOptions): TapCollector {
     const collector = new TapCollector()
     collector.logger = logger.child({ component: 'AllocationReceiptCollector' })
     collector.metrics = registerReceiptMetrics(
@@ -119,10 +140,11 @@ export class TapCollector {
     collector.tapSubgraph = tapSubgraph
     collector.networkSubgraph = networkSubgraph
 
-    const { voucherRedemptionThreshold, finalityTime } =
+    const { voucherRedemptionThreshold, finalityTime, address } =
       networkSpecification.indexerOptions
     collector.ravRedemptionThreshold = voucherRedemptionThreshold
     collector.finalityTime = finalityTime
+    collector.indexerAddress = address
 
     collector.logger.info(`RAV processing is initiated`)
     collector.startRAVProcessing()
@@ -201,12 +223,35 @@ export class TapCollector {
     const allocationIds: string[] = ravs.map((rav) =>
       rav.getSignedRAV().rav.allocationId.toLowerCase(),
     )
+
+    let block: { hash: string } | undefined = undefined
+    let lastId = ''
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const returnedAllocations: any[] = (
-      await this.networkSubgraph.query(
+    const returnedAllocations: any[] = []
+
+    for (;;) {
+      const result = await this.networkSubgraph.query<AllocationsResponse>(
         gql`
-          query allocations($allocationIds: [String!]!) {
-            allocations(where: { id_in: $allocationIds }) {
+          query allocations(
+            $lastId: String!
+            $pageSize: Int!
+            $block: Block_height
+            $allocationIds: [String!]!
+          ) {
+            meta: _meta(block: $block) {
+              block {
+                number
+                hash
+                timestamp
+              }
+            }
+            allocations(
+              first: $pageSize
+              block: $block
+              orderBy: id
+              orderDirection: asc
+              where: { id_gt: $lastId, id_in: $allocationIds }
+            ) {
               id
               status
               subgraphDeployment {
@@ -231,9 +276,19 @@ export class TapCollector {
             }
           }
         `,
-        { allocationIds },
+        { allocationIds, lastId, pageSize: PAGE_SIZE, block },
       )
-    ).data.allocations
+      if (!result.data) {
+        throw `There was an error while querying Network Subgraph. Errors: ${result.error}`
+      }
+
+      returnedAllocations.push(...result.data.allocations)
+      block = { hash: result.data.meta.block.hash }
+      if (result.data.allocations.length < PAGE_SIZE) {
+        break
+      }
+      lastId = result.data.allocations.slice(-1)[0].id
+    }
 
     if (returnedAllocations.length == 0) {
       this.logger.error(
@@ -336,46 +391,83 @@ export class TapCollector {
   public async findTransactionsForRavs(
     ravs: ReceiptAggregateVoucher[],
   ): Promise<TapSubgraphResponse> {
-    const response = await this.tapSubgraph!.query<TapSubgraphResponse>(
-      gql`
-        query transactions(
-          $unfinalizedRavsAllocationIds: [String!]!
-          $senderAddresses: [String!]!
-        ) {
-          transactions(
-            where: {
-              type: "redeem"
-              allocationID_in: $unfinalizedRavsAllocationIds
-              sender_: { id_in: $senderAddresses }
-            }
-          ) {
-            allocationID
-            timestamp
-            sender {
-              id
-            }
-          }
-          _meta {
-            block {
-              timestamp
-            }
-          }
+    let meta: TapMeta | undefined = undefined
+    let lastId = ''
+    const transactions: TapTransaction[] = []
+
+    for (;;) {
+      let block: { hash: string } | undefined = undefined
+      if (meta?.block?.hash) {
+        block = {
+          hash: meta?.block?.hash,
         }
-      `,
-      {
-        unfinalizedRavsAllocationIds: ravs.map((value) =>
-          toAddress(value.allocationId).toLowerCase(),
-        ),
-        senderAddresses: ravs.map((value) =>
-          toAddress(value.senderAddress).toLowerCase(),
-        ),
-      },
-    )
-    if (!response.data) {
-      throw `There was an error while querying Tap Subgraph. Errors: ${response.error}`
+      }
+
+      const result: QueryResult<TapSubgraphResponse> =
+        await this.tapSubgraph.query<TapSubgraphResponse>(
+          gql`
+            query transactions(
+              $lastId: String!
+              $pageSize: Int!
+              $block: Block_height
+              $unfinalizedRavsAllocationIds: [String!]!
+              $senderAddresses: [String!]!
+            ) {
+              transactions(
+                first: $pageSize
+                block: $block
+                orderBy: id
+                orderDirection: asc
+                where: {
+                  id_gt: $lastId
+                  type: "redeem"
+                  allocationID_in: $unfinalizedRavsAllocationIds
+                  sender_: { id_in: $senderAddresses }
+                }
+              ) {
+                id
+                allocationID
+                timestamp
+                sender {
+                  id
+                }
+              }
+              _meta {
+                block {
+                  hash
+                  timestamp
+                }
+              }
+            }
+          `,
+          {
+            lastId,
+            pageSize: PAGE_SIZE,
+            block,
+            unfinalizedRavsAllocationIds: ravs.map((value) =>
+              toAddress(value.allocationId).toLowerCase(),
+            ),
+            senderAddresses: ravs.map((value) =>
+              toAddress(value.senderAddress).toLowerCase(),
+            ),
+          },
+        )
+
+      if (!result.data) {
+        throw `There was an error while querying Tap Subgraph. Errors: ${result.error}`
+      }
+      meta = result.data._meta
+      transactions.push(...result.data.transactions)
+      if (result.data.transactions.length < PAGE_SIZE) {
+        break
+      }
+      lastId = result.data.transactions.slice(-1)[0].id
     }
 
-    return response.data
+    return {
+      transactions,
+      _meta: meta!,
+    }
   }
 
   // for every allocation_id of this list that contains the redeemedAt less than the current
@@ -437,73 +529,40 @@ export class TapCollector {
       function: 'submitRAVs()',
       ravsToSubmit: signedRavs.length,
     })
-    if (!this.tapContracts) {
-      logger.error(
-        `Undefined escrow contracts, but this shouldn't happen as RAV process is only triggered when escrow is provided. \n
-        If this error is encountered please report and oepn an issue at https://github.com/graphprotocol/indexer/issues`,
-        {
-          signedRavs,
-        },
-      )
-      return
-    }
-    const escrow = this.tapContracts
 
     logger.info(`Redeem last RAVs on chain individually`, {
       signedRavs,
     })
+    const escrowAccounts = await getEscrowAccounts(this.tapSubgraph, this.indexerAddress)
 
     // Redeem RAV one-by-one as no plual version available
     for (const { rav: signedRav, allocation, sender } of signedRavs) {
       const { rav } = signedRav
+
+      // verify escrow balances
+      const ravValue = BigInt(rav.valueAggregate.toString())
+      const senderBalance = escrowAccounts.getBalanceForSender(sender)
+      if (senderBalance < ravValue) {
+        this.logger.warn(
+          'RAV was not sent to the blockchain \
+          because its value aggregate is lower than escrow balance.',
+          {
+            rav,
+            sender,
+            senderBalance,
+          },
+        )
+        continue
+      }
+
       const stopTimer = this.metrics.ravsRedeemDuration.startTimer({
         allocation: rav.allocationId,
       })
       try {
-        const proof = await tapAllocationIdProof(
-          allocationSigner(this.transactionManager.wallet, allocation),
-          parseInt(this.protocolNetwork.split(':')[1]),
-          sender,
-          toAddress(rav.allocationId),
-          toAddress(escrow.escrow.address),
-        )
-        this.logger.debug(`Computed allocationIdProof`, {
-          allocationId: rav.allocationId,
-          proof,
-        })
-        // Submit the signed RAV on chain
-        const txReceipt = await this.transactionManager.executeTransaction(
-          () => escrow.escrow.estimateGas.redeem(signedRav, proof),
-          (gasLimit) =>
-            escrow.escrow.redeem(signedRav, proof, {
-              gasLimit,
-            }),
-          logger.child({ function: 'redeem' }),
-        )
-
-        // get tx receipt and post process
-        if (txReceipt === 'paused' || txReceipt === 'unauthorized') {
-          this.metrics.ravRedeemsInvalid.inc({ allocation: rav.allocationId })
-          return
-        }
-        this.metrics.ravCollectedFees.set(
-          { allocation: rav.allocationId },
-          parseFloat(rav.valueAggregate.toString()),
-        )
-
-        try {
-          await this.markRavAsRedeemed(toAddress(rav.allocationId), sender)
-          logger.info(
-            `Updated receipt aggregate vouchers table with redeemed_at for allocation ${rav.allocationId} and sender ${sender}`,
-          )
-        } catch (err) {
-          logger.warn(
-            `Failed to update receipt aggregate voucher table with redeemed_at for allocation ${rav.allocationId}`,
-            {
-              err,
-            },
-          )
-        }
+        await this.redeemRav(logger, allocation, sender, signedRav)
+        // subtract from the escrow account
+        // THIS IS A MUT OPERATION
+        escrowAccounts.subtractSenderBalance(sender, ravValue)
       } catch (err) {
         this.metrics.ravRedeemsFailed.inc({ allocation: rav.allocationId })
         logger.error(`Failed to redeem RAV`, {
@@ -544,6 +603,63 @@ export class TapCollector {
     signedRavs.map((signedRav) =>
       this.metrics.ravRedeemsSuccess.inc({ allocation: signedRav.allocation.id }),
     )
+  }
+
+  public async redeemRav(
+    logger: Logger,
+    allocation: Allocation,
+    sender: Address,
+    signedRav: SignedRAV,
+  ) {
+    const { rav } = signedRav
+
+    const escrow = this.tapContracts
+
+    const proof = await tapAllocationIdProof(
+      allocationSigner(this.transactionManager.wallet, allocation),
+      parseInt(this.protocolNetwork.split(':')[1]),
+      sender,
+      toAddress(rav.allocationId),
+      toAddress(escrow.escrow.address),
+    )
+    this.logger.debug(`Computed allocationIdProof`, {
+      allocationId: rav.allocationId,
+      proof,
+    })
+    // Submit the signed RAV on chain
+    const txReceipt = await this.transactionManager.executeTransaction(
+      () => escrow.escrow.estimateGas.redeem(signedRav, proof),
+      (gasLimit) =>
+        escrow.escrow.redeem(signedRav, proof, {
+          gasLimit,
+        }),
+      logger.child({ function: 'redeem' }),
+    )
+
+    // get tx receipt and post process
+    if (txReceipt === 'paused' || txReceipt === 'unauthorized') {
+      this.metrics.ravRedeemsInvalid.inc({ allocation: rav.allocationId })
+      return
+    }
+
+    this.metrics.ravCollectedFees.set(
+      { allocation: rav.allocationId },
+      parseFloat(rav.valueAggregate.toString()),
+    )
+
+    try {
+      await this.markRavAsRedeemed(toAddress(rav.allocationId), sender)
+      logger.info(
+        `Updated receipt aggregate vouchers table with redeemed_at for allocation ${rav.allocationId} and sender ${sender}`,
+      )
+    } catch (err) {
+      logger.warn(
+        `Failed to update receipt aggregate voucher table with redeemed_at for allocation ${rav.allocationId}`,
+        {
+          err,
+        },
+      )
+    }
   }
 
   private async markRavAsRedeemed(

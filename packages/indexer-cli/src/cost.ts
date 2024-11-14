@@ -193,15 +193,18 @@ export const costModels = async (
   client: IndexerManagementClient,
 ): Promise<Partial<CostModelAttributes>[]> => {
   const result = await client
-    .query(gql`
-      {
-        costModels {
-          deployment
-          model
-          variables
+    .query(
+      gql`
+        {
+          costModels {
+            deployment
+            model
+            variables
+          }
         }
-      }
-    `)
+      `,
+      undefined,
+    )
     .toPromise()
 
   if (result.error) {
