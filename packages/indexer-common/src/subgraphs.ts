@@ -480,16 +480,11 @@ export class SubgraphFreshnessChecker {
 
     // if (blockDistance < 0) {
       // Invariant violated: Subgraph can't be ahead of network latest block
-      const errorMsg = `${this.subgraphName}'s latest indexed block (${latestIndexedBlock}) is higher than Network's latest block (${latestNetworkBlock})`
-      this.logger.trace(errorMsg, logInfo)
-    }
+      // const errorMsg = `${this.subgraphName}'s latest indexed block (${latestIndexedBlock}) is higher than Network's latest block (${latestNetworkBlock})`
+      // this.logger.warn(errorMsg, logInfo)
+    // }
 
     if (blockDistance > this.threshold) {
-      // Reenter function
-      this.logger.warn(
-        `${this.subgraphName} is not fresh. Sleeping for ${this.sleepDurationMillis} ms before retrying`,
-        logInfo,
-      )
       await sleep(this.sleepDurationMillis)
       return this.checkedQueryRecursive(
         updatedQuery,
