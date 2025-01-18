@@ -6,7 +6,6 @@ import {
   indexerError,
   IndexerErrorCode,
   GraphNode,
-  NetworkSubgraph,
   parseGraphQLAllocation,
   parseGraphQLEpochs,
   parseGraphQLSubgraphDeployment,
@@ -14,7 +13,6 @@ import {
   SubgraphDeployment,
   SubgraphVersion,
   NetworkEpoch,
-  EpochSubgraph,
   BlockPointer,
   resolveChainId,
   resolveChainAlias,
@@ -37,6 +35,7 @@ import { providers, utils, Wallet } from 'ethers'
 import pRetry, { Options } from 'p-retry'
 import { IndexerOptions } from '../network-specification'
 import pMap from 'p-map'
+import { SubgraphClient } from '../subgraph-client'
 
 // The new read only Network class
 export class NetworkMonitor {
@@ -46,10 +45,14 @@ export class NetworkMonitor {
     private indexerOptions: IndexerOptions,
     private logger: Logger,
     private graphNode: GraphNode,
-    private networkSubgraph: NetworkSubgraph,
+    private networkSubgraph: SubgraphClient,
     private ethereum: providers.BaseProvider,
-    private epochSubgraph: EpochSubgraph,
+    private epochSubgraph: SubgraphClient,
   ) {}
+
+  poiDisputeMonitoringEnabled(): boolean {
+    return this.indexerOptions.poiDisputeMonitoring
+  }
 
   async currentEpochNumber(): Promise<number> {
     return (await this.contracts.epochManager.currentEpoch()).toNumber()
@@ -128,6 +131,7 @@ export class NetworkMonitor {
   }
 
   async allocations(status: AllocationStatus): Promise<Allocation[]> {
+    const startTimeMs = Date.now()
     try {
       this.logger.debug(`Fetch ${status} allocations`)
       let dataRemaining = true
@@ -198,6 +202,9 @@ export class NetworkMonitor {
         )
       }
 
+      this.logger.debug(
+        `Finished fetching ${status} allocations in ${Date.now() - startTimeMs}ms`,
+      )
       return allocations
     } catch (error) {
       const err = indexerError(IndexerErrorCode.IE010, error)
@@ -985,7 +992,7 @@ Please submit an issue at https://github.com/graphprotocol/block-oracle/issues/n
   async monitorNetworkPauses(
     logger: Logger,
     contracts: NetworkContracts,
-    networkSubgraph: NetworkSubgraph,
+    networkSubgraph: SubgraphClient,
   ): Promise<Eventual<boolean>> {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const initialPauseValue = await contracts.controller.paused().catch((_) => {
