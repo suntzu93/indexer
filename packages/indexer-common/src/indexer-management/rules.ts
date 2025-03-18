@@ -6,15 +6,16 @@ import {
   IndexingRuleAttributes,
 } from '@graphprotocol/indexer-common'
 import { parseIndexingRule } from '../rules'
-import groupBy from 'lodash.groupby'
 
 export const fetchIndexingRules = async (
   models: IndexerManagementModels,
   merged: boolean,
-  protocolNetwork?: string,
 ): Promise<IndexingRuleAttributes[]> => {
   // If unspecified, select indexing rules from all protocol networks
-  const whereClause = protocolNetwork ? { protocolNetwork } : {}
+  const logger = new Logger({ name: 'indexer-common' })
+
+  logger.info(`Fetching indexing rules for current network `)
+  const whereClause = {} // protocolNetwork ?{ protocolNetwork }: {}
   const rules = await models.IndexingRule.findAll({
     where: whereClause,
     order: [
@@ -23,16 +24,12 @@ export const fetchIndexingRules = async (
     ],
   })
   if (merged) {
-    // Merge rules by protocol network
-    return Object.entries(groupBy(rules, (rule) => rule.protocolNetwork))
-      .map(([protocolNetwork, rules]) => {
-        const global = rules.find((rule) => rule.identifier === INDEXING_RULE_GLOBAL)
-        if (!global) {
-          throw Error(`Could not find global rule for network '${protocolNetwork}'`)
-        }
-        return rules.map((rule) => rule.mergeGlobal(global))
-      })
-      .flat()
+    // Merge global rule into all rules
+    const global = rules.find((rule) => rule.identifier === INDEXING_RULE_GLOBAL)
+    if (!global) {
+      throw Error(`Could not find global rule for current network`)
+    }
+    return rules.map((rule) => rule.mergeGlobal(global))
   } else {
     return rules
   }

@@ -10,7 +10,6 @@ import {
   Network,
   validateNetworkIdentifier,
 } from '@graphprotocol/indexer-common'
-import { extractNetwork } from './utils'
 interface Test {
   test: (url: string) => string
   run: (url: string) => Promise<void>
@@ -62,16 +61,15 @@ const URL_VALIDATION_TEST: Test = {
 
 export default {
   indexerRegistration: async (
-    { protocolNetwork: unvalidatedProtocolNetwork }: { protocolNetwork: string },
-    { multiNetworks }: IndexerManagementResolverContext,
+    _: { protocolNetwork: string | null },
+    { network }: IndexerManagementResolverContext,
   ): Promise<object | null> => {
-    if (!multiNetworks) {
+    if (!network) {
       throw Error(
         'IndexerManagementClient must be in `network` mode to fetch indexer registration information',
       )
     }
 
-    const network = extractNetwork(unvalidatedProtocolNetwork, multiNetworks)
     const protocolNetwork = network.specification.networkIdentifier
     const address = network.specification.indexerOptions.address
     const contracts = network.contracts
@@ -100,7 +98,7 @@ export default {
   },
 
   indexerDeployments: async (
-    _: {},
+    _: { protocolNetwork: string | null },
     { graphNode }: IndexerManagementResolverContext,
   ): Promise<object | null> => {
     const result = await graphNode.indexingStatus([])
@@ -111,16 +109,15 @@ export default {
   },
 
   indexerAllocations: async (
-    { protocolNetwork }: { protocolNetwork: string },
-    { multiNetworks, logger }: IndexerManagementResolverContext,
+    _: { protocolNetwork: string | null },
+    { network, logger }: IndexerManagementResolverContext,
   ): Promise<object | null> => {
-    if (!multiNetworks) {
+    if (!network) {
       throw Error(
         'IndexerManagementClient must be in `network` mode to fetch indexer allocations',
       )
     }
 
-    const network = extractNetwork(protocolNetwork, multiNetworks)
     const address = network.specification.indexerOptions.address
 
     try {
@@ -188,9 +185,9 @@ export default {
 
   indexerEndpoints: async (
     { protocolNetwork: unvalidatedProtocolNetwork }: { protocolNetwork: string | null },
-    { multiNetworks, logger }: IndexerManagementResolverContext,
+    { network, logger }: IndexerManagementResolverContext,
   ): Promise<Endpoints[] | null> => {
-    if (!multiNetworks) {
+    if (!network) {
       throw Error(
         'IndexerManagementClient must be in `network` mode to fetch indexer endpoints',
       )
@@ -209,25 +206,22 @@ export default {
       )
     }
 
-    await multiNetworks.map(async (network: Network) => {
-      // Skip if this query asks for another protocol network
-      if (
-        networkIdentifier &&
-        networkIdentifier !== network.specification.networkIdentifier
-      ) {
-        return
-      }
-      try {
-        const networkEndpoints = await endpointForNetwork(network)
-        endpoints.push(networkEndpoints)
-      } catch (err) {
-        // Ignore endpoints for this network
-        logger?.warn(`Failed to detect service endpoints for network`, {
-          err,
-          protocolNetwork: network.specification.networkIdentifier,
-        })
-      }
-    })
+    if (
+      networkIdentifier &&
+      networkIdentifier !== network.specification.networkIdentifier
+    ) {
+      return endpoints
+    }
+    try {
+      const networkEndpoints = await endpointForNetwork(network)
+      endpoints.push(networkEndpoints)
+    } catch (err) {
+      // Ignore endpoints for this network
+      logger?.warn(`Failed to detect service endpoints for network`, {
+        err,
+        protocolNetwork: network.specification.networkIdentifier,
+      })
+    }
     return endpoints
   },
 }

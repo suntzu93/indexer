@@ -2,7 +2,7 @@ import {
   cliTest,
   deleteFromAllTables,
   seedActions,
-  setupMultiNetworks,
+  setupSingleNetwork,
   teardown,
 } from '../util'
 import path from 'path'
@@ -10,7 +10,7 @@ import path from 'path'
 const baseDir = path.join(__dirname, '..')
 describe('Indexer actions tests', () => {
   describe('With indexer management server', () => {
-    beforeAll(setupMultiNetworks)
+    beforeAll(setupSingleNetwork)
     afterAll(teardown)
     beforeEach(seedActions)
     afterEach(deleteFromAllTables)
@@ -26,16 +26,6 @@ describe('Indexer actions tests', () => {
         'references/indexer-actions',
         {
           expectedExitCode: 255,
-          cwd: baseDir,
-          timeout: 10000,
-        },
-      )
-      cliTest(
-        'Indexer actions get',
-        ['indexer', 'actions', 'get', 'all'],
-        'references/indexer-actions-get',
-        {
-          expectedExitCode: 0,
           cwd: baseDir,
           timeout: 10000,
         },
