@@ -204,6 +204,8 @@ const caip2ByChainId: { [key: number]: string } = {
   30: 'eip155:30',
   1101: 'eip155:1101',
   324: 'eip155:324',
+  146: 'eip155:146',
+  84532: 'eip155:84532',
 }
 
 const caip2ByChainAlias: { [key: string]: string } = {
@@ -234,6 +236,8 @@ const caip2ByChainAlias: { [key: string]: string } = {
   rootstock: 'eip155:30',
   'polygon-zkevm': 'eip155:1101',
   'zksync-era': 'eip155:324',
+  sonic: 'eip155:146',
+  'base-sepolia': 'eip155:84532',
 }
 
 async function buildCaip2MappingsFromRegistry() {
