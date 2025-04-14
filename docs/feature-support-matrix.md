@@ -15,7 +15,6 @@ The matrix below reflects the canonical Council-ratified version. As outlined in
 | eip155:1                   | mainnet       | Yes         | No           | Yes               | Yes                  | Yes              |
 | eip155:100                 | gnosis        | Yes         | Yes          | Yes               | Yes                  | Yes              |
 | near:\*                    | \*            | Yes         | Yes          | No                | No                   | No               |
-| cosmos:\*                  | \*            | Yes         | Yes          | No                | No                   | No               |
 | arweave:\*                 | \*            | Yes         | Yes          | No                | No                   | No               |
 | eip155:42161               | artbitrum-one | Yes         | Yes          | Yes               | Yes                  | Yes              |
 | eip155:42220               | celo          | Yes         | Yes          | Yes               | Yes                  | Yes              |
@@ -31,6 +30,10 @@ The matrix below reflects the canonical Council-ratified version. As outlined in
 | eip155:81457               | blast-mainnet | Yes         | Yes          | Yes               | Yes                  | Yes              |
 | eip155:288                 | boba          | Yes         | Yes          | Yes               | Yes                  | Yes              |
 | eip155:56288               | boba-bnb      | Yes         | Yes          | Yes               | Yes                  | Yes              |
+| eip155:7777777             | zora          | Yes         | Yes          | Yes               | Yes                  | Yes              |
+| eip155:34443               | mode          | Yes         | Yes          | Yes               | Yes                  | Yes              |
+| eip155:1284                | moonbeam      | Yes         | Yes          | Yes               | Yes                  | Yes              |
+| eip155:30                  | rootstock     | Yes         | Yes          | Yes               | Yes                  | Yes              |
 | **Data Source Features**   |               |             |              |                   |                      |                  |
 | ipfs.cat in mappings       |               | Yes         | Yes          | No                | No                   | No               |
 | ENS                        |               | Yes         | Yes          | Yes               | Yes                  | Yes              |
@@ -43,12 +46,12 @@ The accepted `graph-node` version range must always be specified; it always comp
 The latest for the feature matrix above:
 
 ```
-graph-node: >=0.35.0 <0.36.0
+graph-node: >=0.35.0 <=0.36.1
 ```
 
 ### Latest Council snapshot
 
-[GGP-0043: Updated Feature Matrix Support (base, bsc, scroll, linea)](https://snapshot.org/#/council.graphprotocol.eth/proposal/0x4226f917346416b76f77369181881bebbc9b4e3f66e9681e5fc4e56d7460eba7)
+[GGP-0050 Updated Feature Matrix Support (zora, mode, moonbeam)](https://snapshot.org/#/s:council.graphprotocol.eth/proposal/0x7c1b0eaa299a24ba23f76d86d85b903ac8e8457db3656531e7bd5cee80c20146)
 
 ### Other notes
 

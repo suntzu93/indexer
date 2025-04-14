@@ -23,7 +23,6 @@ const SET_COST_MODEL_MUTATION = gql`
     setCostModel(costModel: $costModel) {
       deployment
       model
-      variables
     }
   }
 `
@@ -33,7 +32,6 @@ const DELETE_COST_MODELS_MUTATION = gql`
     deleteCostModels(deployments: $deployments) {
       deployment
       model
-      variables
     }
   }
 `
@@ -43,7 +41,6 @@ const GET_COST_MODEL_QUERY = gql`
     costModel(deployment: $deployment) {
       deployment
       model
-      variables
     }
   }
 `
@@ -53,7 +50,6 @@ const GET_COST_MODELS_QUERY = gql`
     costModels {
       deployment
       model
-      variables
     }
   }
 `
@@ -63,7 +59,6 @@ const GET_COST_MODELS_DEPLOYMENTS_QUERY = gql`
     costModels(deployments: $deployments) {
       deployment
       model
-      variables
     }
   }
 `
@@ -95,7 +90,6 @@ const setupAll = async () => {
   client = await createTestManagementClient(
     __DATABASE__,
     logger,
-    true,
     metrics,
     'eip155:1', // Override with mainnet to enable the Cost Model feature
   )
@@ -126,8 +120,7 @@ describe('Cost models', () => {
   test('Set and get cost model (model and variables)', async () => {
     const input = {
       deployment: '0x0000000000000000000000000000000000000000000000000000000000000000',
-      model: 'query { votes } => 10 * $n;',
-      variables: JSON.stringify({ n: 100 }),
+      model: 'default => 42;',
     }
 
     const expected = { ...input }
@@ -144,34 +137,12 @@ describe('Cost models', () => {
   test('Set and get cost model (model only)', async () => {
     const input = {
       deployment: '0x0000000000000000000000000000000000000000000000000000000000000000',
-      model: 'query { votes } => 10 * $n;',
+      model: 'default => 0.00025;',
     }
 
     const expected = {
       deployment: '0x0000000000000000000000000000000000000000000000000000000000000000',
       model: input.model,
-      variables: null,
-    }
-
-    await expect(
-      client
-        .mutation(SET_COST_MODEL_MUTATION, {
-          costModel: input,
-        })
-        .toPromise(),
-    ).resolves.toHaveProperty('data.setCostModel', expected)
-  })
-
-  test('Set and get cost model (variables only)', async () => {
-    const input = {
-      deployment: '0x0000000000000000000000000000000000000000000000000000000000000000',
-      variables: JSON.stringify({ foo: 'bar', baz: 5 }),
-    }
-
-    const expected = {
-      deployment: '0x0000000000000000000000000000000000000000000000000000000000000000',
-      model: null,
-      variables: `{"baz":5,"foo":"bar"}`,
     }
 
     await expect(
@@ -187,7 +158,6 @@ describe('Cost models', () => {
     const input = {
       deployment: 'global',
       model: 'default => 0.00025;',
-      variables: JSON.stringify({ n: 100 }),
     }
 
     const expected = { ...input }
@@ -246,45 +216,21 @@ describe('Cost models', () => {
       {
         input: {
           deployment,
-          model: 'query { votes} => 10 * $n;',
+          model: 'default => 42;',
         },
         expected: {
           deployment,
-          model: 'query { votes} => 10 * $n;',
-          variables: null,
+          model: 'default => 42;',
         },
       },
       {
         input: {
           deployment,
-          model: 'query { votes} => 20 * $n;',
+          model: 'default => 1;',
         },
         expected: {
           deployment,
-          model: 'query { votes} => 20 * $n;',
-          variables: null,
-        },
-      },
-      {
-        input: {
-          deployment,
-          variables: JSON.stringify({ n: 1 }),
-        },
-        expected: {
-          deployment,
-          model: 'query { votes} => 20 * $n;',
-          variables: JSON.stringify({ n: 1 }),
-        },
-      },
-      {
-        input: {
-          deployment,
-          variables: JSON.stringify({ n: 2 }),
-        },
-        expected: {
-          deployment,
-          model: 'query { votes} => 20 * $n;',
-          variables: JSON.stringify({ n: 2 }),
+          model: 'default => 1;',
         },
       },
     ]
@@ -326,7 +272,6 @@ describe('Cost models', () => {
     const input = {
       deployment: 'global',
       model: 'default => 0.00025;',
-      variables: JSON.stringify({ n: 100 }),
     }
 
     const expected = { ...input }
@@ -356,13 +301,11 @@ describe('Cost models', () => {
     const inputs = [
       {
         deployment: '0x0000000000000000000000000000000000000000000000000000000000000000',
-        model: 'query { votes } => 10 * $n;',
-        variables: JSON.stringify({ n: 100 }),
+        model: 'default => 42;',
       },
       {
         deployment: '0x1111111111111111111111111111111111111111111111111111111111111111',
-        model: 'query { proposals } => 30 * $n;',
-        variables: JSON.stringify({ n: 10 }),
+        model: 'default => 1;',
       },
     ]
 
@@ -381,13 +324,11 @@ describe('Cost models', () => {
     const inputs = [
       {
         deployment: '0x0000000000000000000000000000000000000000000000000000000000000000',
-        model: 'query { votes } => 10 * $n;',
-        variables: JSON.stringify({ n: 100 }),
+        model: 'default => 42;',
       },
       {
         deployment: '0x1111111111111111111111111111111111111111111111111111111111111111',
-        model: 'query { proposals } => 30 * $n;',
-        variables: JSON.stringify({ n: 10 }),
+        model: 'default => 1;',
       },
     ]
 
@@ -404,13 +345,11 @@ describe('Cost models', () => {
     const inputs = [
       {
         deployment: '0x0000000000000000000000000000000000000000000000000000000000000000',
-        model: 'query { votes } => 10 * $n;',
-        variables: JSON.stringify({ n: 100 }),
+        model: 'default => 2;',
       },
       {
         deployment: '0x1111111111111111111111111111111111111111111111111111111111111111',
-        model: 'query { proposals } => 30 * $n;',
-        variables: JSON.stringify({ n: 10 }),
+        model: 'default => 1;',
       },
     ]
     const nonexisting =
@@ -433,7 +372,6 @@ describe('Cost models', () => {
     const global_input = {
       deployment: 'global',
       model: 'default => 0.00025;',
-      variables: JSON.stringify({ n: 100 }),
     }
     const expected = { ...global_input }
     await expect(
@@ -455,44 +393,15 @@ describe('Cost models', () => {
     ).resolves.toHaveProperty('data.costModels', inputs.concat([global_input]))
   })
 
-  test('Clear model by passing in an empty model', async () => {
-    let input = {
-      deployment: '0x0000000000000000000000000000000000000000000000000000000000000000',
-      model: 'query { votes } => 10 * $n',
-      variables: JSON.stringify({ n: 100 }),
-    }
-
-    await client.mutation(SET_COST_MODEL_MUTATION, { costModel: input }).toPromise()
-
-    input = {
-      deployment: '0x0000000000000000000000000000000000000000000000000000000000000000',
-      model: '',
-      variables: JSON.stringify({}),
-    }
-    const expected = {
-      deployment: '0x0000000000000000000000000000000000000000000000000000000000000000',
-      model: null,
-      variables: JSON.stringify({}),
-    }
-
-    await client.mutation(SET_COST_MODEL_MUTATION, { costModel: input }).toPromise()
-
-    await expect(
-      client.query(GET_COST_MODELS_QUERY, undefined).toPromise(),
-    ).resolves.toHaveProperty('data.costModels', [expected])
-  })
-
   test('Delete one cost model', async () => {
     const inputs = [
       {
         deployment: '0x0000000000000000000000000000000000000000000000000000000000000000',
-        model: 'query { votes } => 10 * $n;',
-        variables: JSON.stringify({ n: 100 }),
+        model: 'default => 0.1;',
       },
       {
         deployment: '0x1111111111111111111111111111111111111111111111111111111111111111',
-        model: 'query { proposals } => 30 * $n;',
-        variables: JSON.stringify({ n: 10 }),
+        model: 'default => 1;',
       },
     ]
 
@@ -519,13 +428,11 @@ describe('Cost models', () => {
     const inputs = [
       {
         deployment: '0x0000000000000000000000000000000000000000000000000000000000000000',
-        model: 'query { votes } => 10 * $n;',
-        variables: JSON.stringify({ n: 100 }),
+        model: 'default => 1;',
       },
       {
         deployment: '0x1111111111111111111111111111111111111111111111111111111111111111',
-        model: 'query { proposals } => 30 * $n;',
-        variables: JSON.stringify({ n: 10 }),
+        model: 'default => 2;',
       },
     ]
 
@@ -553,12 +460,10 @@ describe('Cost models', () => {
       {
         deployment: 'global',
         model: 'default => 0.00025;',
-        variables: JSON.stringify({ n: 100 }),
       },
       {
         deployment: '0x0000000000000000000000000000000000000000000000000000000000000000',
-        model: 'query { votes } => 10 * $n;',
-        variables: JSON.stringify({ n: 100 }),
+        model: 'default => 1;',
       },
     ]
 
@@ -576,183 +481,11 @@ describe('Cost models', () => {
   })
 })
 
-describe('Feature: Inject $DAI variable', () => {
-  beforeEach(setupAll)
-  afterEach(teardownAll)
-
-  test('$DAI variable is preserved when clearing variables', async () => {
-    const initial = {
-      deployment: '0x0000000000000000000000000000000000000000000000000000000000000000',
-      model: 'query { votes } => 10 * $n;',
-      variables: JSON.stringify({ DAI: '10.0' }),
-    }
-    await client.mutation(SET_COST_MODEL_MUTATION, { costModel: initial }).toPromise()
-
-    const update = {
-      deployment: '0x0000000000000000000000000000000000000000000000000000000000000000',
-      model: null,
-      variables: JSON.stringify({}),
-    }
-    await client.mutation(SET_COST_MODEL_MUTATION, { costModel: update }).toPromise()
-
-    await expect(
-      client.query(GET_COST_MODELS_QUERY, undefined).toPromise(),
-    ).resolves.toHaveProperty('data.costModels', [initial])
-  })
-
-  test('$DAI variable can be overwritten', async () => {
-    const initial = {
-      deployment: '0x0000000000000000000000000000000000000000000000000000000000000000',
-      model: 'query { votes } => 10 * $n;',
-      variables: JSON.stringify({ DAI: '10.0' }),
-    }
-    await client.mutation(SET_COST_MODEL_MUTATION, { costModel: initial }).toPromise()
-    const update = {
-      deployment: '0x0000000000000000000000000000000000000000000000000000000000000000',
-      model: initial.model,
-      variables: JSON.stringify({ DAI: '15.0' }),
-    }
-    await client.mutation(SET_COST_MODEL_MUTATION, { costModel: update }).toPromise()
-    await expect(
-      client.query(GET_COST_MODELS_QUERY, undefined).toPromise(),
-    ).resolves.toHaveProperty('data.costModels', [update])
-  })
-
-  test('$DAI updates are applied to all cost models', async () => {
-    const inputs = [
-      {
-        deployment: '0x0000000000000000000000000000000000000000000000000000000000000000',
-        model: 'query { votes } => 10 * $n;',
-        variables: JSON.stringify({ n: 100, DAI: '10.0' }),
-      },
-      {
-        deployment: '0x1111111111111111111111111111111111111111111111111111111111111111',
-        model: 'query { proposals } => 30 * $n;',
-        variables: JSON.stringify({ n: 10 }),
-      },
-    ]
-
-    for (const input of inputs) {
-      await client.mutation(SET_COST_MODEL_MUTATION, { costModel: input }).toPromise()
-    }
-
-    await client.setDai('15.3')
-
-    await expect(
-      client.query(GET_COST_MODELS_QUERY, undefined).toPromise(),
-    ).resolves.toHaveProperty('data.costModels', [
-      {
-        ...inputs[0],
-        // DAI was replaced here
-        variables: JSON.stringify({ n: 100, DAI: '15.3' }),
-      },
-      {
-        ...inputs[1],
-        // DAI was added here
-        variables: JSON.stringify({ n: 10, DAI: '15.3' }),
-      },
-    ])
-  })
-
-  test('$DAI is added to new models', async () => {
-    const inputs = [
-      {
-        deployment: '0x0000000000000000000000000000000000000000000000000000000000000000',
-        model: 'query { votes } => 10 * $n;',
-        variables: JSON.stringify({ n: 100, DAI: '10.0' }),
-      },
-      {
-        deployment: '0x1111111111111111111111111111111111111111111111111111111111111111',
-        model: 'query { proposals } => 30 * $n;',
-        variables: JSON.stringify({ n: 10 }),
-      },
-    ]
-
-    // This time, set the DAI value first
-    await client.setDai('15.3')
-
-    // THEN add new cost models
-    for (const input of inputs) {
-      await client.mutation(SET_COST_MODEL_MUTATION, { costModel: input }).toPromise()
-    }
-
-    await expect(
-      client.query(GET_COST_MODELS_QUERY, undefined).toPromise(),
-    ).resolves.toHaveProperty('data.costModels', [
-      {
-        ...inputs[0],
-        // DAI was replaced here
-        variables: JSON.stringify({ n: 100, DAI: '15.3' }),
-      },
-      {
-        ...inputs[1],
-        // DAI was added here
-        variables: JSON.stringify({ n: 10, DAI: '15.3' }),
-      },
-    ])
-  })
-
-  test('$DAI is preserved when cost model is updated', async () => {
-    const initial = {
-      deployment: '0x0000000000000000000000000000000000000000000000000000000000000000',
-      model: 'query { votes } => 10 * $n;',
-      variables: JSON.stringify({ n: 5, DAI: '10.0' }),
-    }
-
-    await client.mutation(SET_COST_MODEL_MUTATION, { costModel: initial }).toPromise()
-    const update = {
-      deployment: '0x0000000000000000000000000000000000000000000000000000000000000000',
-      model: 'default => 1;',
-      variables: null,
-    }
-    await client.mutation(SET_COST_MODEL_MUTATION, { costModel: update }).toPromise()
-    await expect(
-      client.query(GET_COST_MODELS_QUERY, undefined).toPromise(),
-    ).resolves.toHaveProperty('data.costModels', [
-      {
-        ...update,
-        variables: initial.variables,
-      },
-    ])
-  })
-
-  test('If feature is disabled, $DAI variable is not preserved', async () => {
-    const clientNoInjectDai = await createTestManagementClient(
-      __DATABASE__,
-      logger,
-      false,
-      metrics,
-      'eip155:1', // Override with mainnet to enable the Cost Model feature
-    )
-
-    const initial = {
-      deployment: '0x0000000000000000000000000000000000000000000000000000000000000000',
-      model: 'query { votes } => 10 * $n;',
-      variables: JSON.stringify({ n: 5, DAI: '10.0' }),
-    }
-    await clientNoInjectDai
-      .mutation(SET_COST_MODEL_MUTATION, { costModel: initial })
-      .toPromise()
-    const update = {
-      deployment: '0x0000000000000000000000000000000000000000000000000000000000000000',
-      model: initial.model,
-      variables: JSON.stringify({}),
-    }
-    await clientNoInjectDai
-      .mutation(SET_COST_MODEL_MUTATION, { costModel: update })
-      .toPromise()
-    await expect(
-      clientNoInjectDai.query(GET_COST_MODELS_QUERY, undefined).toPromise(),
-    ).resolves.toHaveProperty('data.costModels', [update])
-  })
-})
-
 describe('Cost model validation', () => {
   test('Invalid cost models are rejected', async () => {
     const costModel = {
       deployment: '0x0000000000000000000000000000000000000000000000000000000000000000',
       model: 'default => 1.0', // semicolon missing
-      variables: '{}',
     }
 
     await expect(
@@ -762,28 +495,7 @@ describe('Cost model validation', () => {
       new CombinedError({
         graphQLErrors: [
           new GraphQLError(
-            'Invalid cost model or variables: Failed to compile cost model',
-          ),
-        ],
-      }),
-    )
-  })
-
-  test('Invalid cost model variables are rejected', async () => {
-    const costModel = {
-      deployment: '0x0000000000000000000000000000000000000000000000000000000000000000',
-      model: 'default => 1.0;',
-      variables: '"foo"',
-    }
-
-    await expect(
-      client.mutation(SET_COST_MODEL_MUTATION, { costModel }).toPromise(),
-    ).resolves.toHaveProperty(
-      'error',
-      new CombinedError({
-        graphQLErrors: [
-          new GraphQLError(
-            'Invalid cost model or variables: Failed to compile cost model',
+            'Invalid cost model: Cost model must be of the form "default => x;", where x is a literal value.',
           ),
         ],
       }),

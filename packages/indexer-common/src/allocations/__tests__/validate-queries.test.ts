@@ -44,6 +44,7 @@ const setup = async () => {
     'https://test-admin-endpoint.xyz',
     'https://test-query-endpoint.xyz',
     'https://test-status-endpoint.xyz',
+    'https://test-ipfs-endpoint.xyz',
   )
 
   const network = await Network.create(
@@ -57,7 +58,10 @@ const setup = async () => {
 }
 
 jest.spyOn(TapCollector.prototype, 'startRAVProcessing').mockImplementation()
-describe('Validate TAP queries', () => {
+
+// Skipped because this hits real RPC endpoints.
+// This test should be re-enabled when we have a test environment that this can hit instead.
+describe.skip('Validate TAP queries', () => {
   beforeAll(setup, timeout)
 
   test(

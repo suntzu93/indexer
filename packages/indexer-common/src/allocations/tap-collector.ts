@@ -1,13 +1,11 @@
 import { Counter, Gauge, Histogram } from 'prom-client'
 import {
   Logger,
-  timer,
   toAddress,
   formatGRT,
   Address,
   Metrics,
   Eventual,
-  join as joinEventual,
 } from '@graphprotocol/common-ts'
 import { NetworkContracts as TapContracts } from '@semiotic-labs/tap-contracts-bindings'
 import {
@@ -23,18 +21,19 @@ import {
   allocationSigner,
   tapAllocationIdProof,
   parseGraphQLAllocation,
+  sequentialTimerMap,
 } from '..'
 import { BigNumber } from 'ethers'
 import pReduce from 'p-reduce'
-import { TAPSubgraph } from '../tap-subgraph'
-import { NetworkSubgraph, QueryResult } from '../network-subgraph'
+import { SubgraphClient, QueryResult } from '../subgraph-client'
 import gql from 'graphql-tag'
 import { getEscrowAccounts } from './escrow-accounts'
 
 // every 15 minutes
 const RAV_CHECK_INTERVAL_MS = 900_000
 
-const PAGE_SIZE = 1000
+// 1000 here was leading to http 413 request entity too large
+const PAGE_SIZE = 200
 
 interface RavMetrics {
   ravRedeemsSuccess: Counter<string>
@@ -52,8 +51,8 @@ interface TapCollectorOptions {
   allocations: Eventual<Allocation[]>
   models: QueryFeeModels
   networkSpecification: spec.NetworkSpecification
-  tapSubgraph: TAPSubgraph
-  networkSubgraph: NetworkSubgraph
+  tapSubgraph: SubgraphClient
+  networkSubgraph: SubgraphClient
 }
 
 interface ValidRavs {
@@ -107,8 +106,8 @@ export class TapCollector {
   declare allocations: Eventual<Allocation[]>
   declare ravRedemptionThreshold: BigNumber
   declare protocolNetwork: string
-  declare tapSubgraph: TAPSubgraph
-  declare networkSubgraph: NetworkSubgraph
+  declare tapSubgraph: SubgraphClient
+  declare networkSubgraph: SubgraphClient
   declare finalityTime: number
   declare indexerAddress: Address
 
@@ -127,7 +126,7 @@ export class TapCollector {
     networkSubgraph,
   }: TapCollectorOptions): TapCollector {
     const collector = new TapCollector()
-    collector.logger = logger.child({ component: 'AllocationReceiptCollector' })
+    collector.logger = logger.child({ component: 'TapCollector' })
     collector.metrics = registerReceiptMetrics(
       metrics,
       networkSpecification.networkIdentifier,
@@ -184,9 +183,11 @@ export class TapCollector {
   }
 
   private getPendingRAVs(): Eventual<RavWithAllocation[]> {
-    return joinEventual({
-      timer: timer(RAV_CHECK_INTERVAL_MS),
-    }).tryMap(
+    return sequentialTimerMap(
+      {
+        logger: this.logger,
+        milliseconds: RAV_CHECK_INTERVAL_MS,
+      },
       async () => {
         let ravs = await this.pendingRAVs()
         if (ravs.length === 0) {
@@ -197,9 +198,10 @@ export class TapCollector {
           ravs = await this.filterAndUpdateRavs(ravs)
         }
         const allocations: Allocation[] = await this.getAllocationsfromAllocationIds(ravs)
-        this.logger.info(
-          `Retrieved allocations for pending RAVs \n: ${JSON.stringify(allocations)}`,
-        )
+        this.logger.info(`Retrieved allocations for pending RAVs`, {
+          ravs: ravs.length,
+          allocations: allocations.length,
+        })
         return ravs
           .map((rav) => {
             const signedRav = rav.getSignedRAV()
@@ -328,38 +330,24 @@ export class TapCollector {
   private async pendingRAVs(): Promise<ReceiptAggregateVoucher[]> {
     return await this.models.receiptAggregateVouchers.findAll({
       where: { last: true, final: false },
+      limit: 100,
     })
   }
 
   private async filterAndUpdateRavs(
     ravsLastNotFinal: ReceiptAggregateVoucher[],
   ): Promise<ReceiptAggregateVoucher[]> {
+    // look for all transactions for that includes senderaddress[] and allocations[]
     const tapSubgraphResponse = await this.findTransactionsForRavs(ravsLastNotFinal)
 
-    const redeemedRavsNotOnOurDatabase = tapSubgraphResponse.transactions.filter(
-      (tx) =>
-        !ravsLastNotFinal.find(
-          (rav) =>
-            toAddress(rav.senderAddress) === toAddress(tx.sender.id) &&
-            toAddress(rav.allocationId) === toAddress(tx.allocationID),
-        ),
-    )
-
-    // for each transaction that is not redeemed on our database
-    // but was redeemed on the blockchain, update it to redeemed
-    if (redeemedRavsNotOnOurDatabase.length > 0) {
-      for (const rav of redeemedRavsNotOnOurDatabase) {
-        await this.markRavAsRedeemed(
-          toAddress(rav.allocationID),
-          toAddress(rav.sender.id),
-          rav.timestamp,
-        )
-      }
-    }
+    // check for redeemed ravs in tx list but not marked as redeemed in our database
+    this.markRavsInTransactionsAsRedeemed(tapSubgraphResponse, ravsLastNotFinal)
 
     // Filter unfinalized RAVS fetched from DB, keeping RAVs that have not yet been redeemed on-chain
     const nonRedeemedRavs = ravsLastNotFinal
+      // get all ravs that were marked as redeemed in our database
       .filter((rav) => !!rav.redeemedAt)
+      // get all ravs that wasn't possible to find the transaction
       .filter(
         (rav) =>
           !tapSubgraphResponse.transactions.find(
@@ -388,12 +376,54 @@ export class TapCollector {
     })
   }
 
+  public async markRavsInTransactionsAsRedeemed(
+    tapSubgraphResponse: TapSubgraphResponse,
+    ravsLastNotFinal: ReceiptAggregateVoucher[],
+  ) {
+    // get a list of transactions for ravs marked as not redeemed in our database
+    const redeemedRavsNotOnOurDatabase = tapSubgraphResponse.transactions
+      // get only the transactions that exists, this prevents errors marking as redeemed
+      // transactions for different senders with the same allocation id
+      .filter((tx) => {
+        // check if exists in the ravsLastNotFinal list
+        return !!ravsLastNotFinal.find(
+          (rav) =>
+            // rav has the same sender address as tx
+            toAddress(rav.senderAddress) === toAddress(tx.sender.id) &&
+            // rav has the same allocation id as tx
+            toAddress(rav.allocationId) === toAddress(tx.allocationID) &&
+            // rav was marked as not redeemed in the db
+            !rav.redeemedAt,
+        )
+      })
+
+    // for each transaction that is not redeemed on our database
+    // but was redeemed on the blockchain, update it to redeemed
+    if (redeemedRavsNotOnOurDatabase.length > 0) {
+      for (const rav of redeemedRavsNotOnOurDatabase) {
+        await this.markRavAsRedeemed(
+          toAddress(rav.allocationID),
+          toAddress(rav.sender.id),
+          rav.timestamp,
+        )
+      }
+    }
+  }
+
   public async findTransactionsForRavs(
     ravs: ReceiptAggregateVoucher[],
   ): Promise<TapSubgraphResponse> {
     let meta: TapMeta | undefined = undefined
     let lastId = ''
     const transactions: TapTransaction[] = []
+
+    const unfinalizedRavsAllocationIds = [
+      ...new Set(ravs.map((value) => toAddress(value.allocationId).toLowerCase())),
+    ]
+
+    const senderAddresses = [
+      ...new Set(ravs.map((value) => toAddress(value.senderAddress).toLowerCase())),
+    ]
 
     for (;;) {
       let block: { hash: string } | undefined = undefined
@@ -444,12 +474,8 @@ export class TapCollector {
             lastId,
             pageSize: PAGE_SIZE,
             block,
-            unfinalizedRavsAllocationIds: ravs.map((value) =>
-              toAddress(value.allocationId).toLowerCase(),
-            ),
-            senderAddresses: ravs.map((value) =>
-              toAddress(value.senderAddress).toLowerCase(),
-            ),
+            unfinalizedRavsAllocationIds,
+            senderAddresses,
           },
         )
 
@@ -568,7 +594,7 @@ export class TapCollector {
         logger.error(`Failed to redeem RAV`, {
           err: indexerError(IndexerErrorCode.IE055, err),
         })
-        return
+        continue
       }
       stopTimer()
     }
@@ -671,7 +697,7 @@ export class TapCollector {
     // https://github.com/sequelize/sequelize/issues/7664 (bug been open for 7 years no fix yet or ever)
     const query = `
             UPDATE scalar_tap_ravs
-            SET redeemed_at = ${timestamp ? timestamp : 'NOW()'}
+            SET redeemed_at = ${timestamp ? `to_timestamp(${timestamp})` : 'NOW()'}
             WHERE allocation_id = '${allocationId
               .toString()
               .toLowerCase()

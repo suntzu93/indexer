@@ -6,7 +6,6 @@ import {
   indexerError,
   IndexerErrorCode,
   GraphNode,
-  NetworkSubgraph,
   parseGraphQLAllocation,
   parseGraphQLEpochs,
   parseGraphQLSubgraphDeployment,
@@ -14,11 +13,11 @@ import {
   SubgraphDeployment,
   SubgraphVersion,
   NetworkEpoch,
-  EpochSubgraph,
   BlockPointer,
   resolveChainId,
   resolveChainAlias,
   TransferredSubgraphDeployment,
+  sequentialTimerReduce,
 } from '@graphprotocol/indexer-common'
 import {
   Address,
@@ -27,7 +26,6 @@ import {
   mutable,
   NetworkContracts,
   SubgraphDeploymentID,
-  timer,
   toAddress,
   formatGRT,
 } from '@graphprotocol/common-ts'
@@ -37,6 +35,7 @@ import { providers, utils, Wallet } from 'ethers'
 import pRetry, { Options } from 'p-retry'
 import { IndexerOptions } from '../network-specification'
 import pMap from 'p-map'
+import { SubgraphClient } from '../subgraph-client'
 
 // The new read only Network class
 export class NetworkMonitor {
@@ -46,10 +45,14 @@ export class NetworkMonitor {
     private indexerOptions: IndexerOptions,
     private logger: Logger,
     private graphNode: GraphNode,
-    private networkSubgraph: NetworkSubgraph,
+    private networkSubgraph: SubgraphClient,
     private ethereum: providers.BaseProvider,
-    private epochSubgraph: EpochSubgraph,
+    private epochSubgraph: SubgraphClient,
   ) {}
+
+  poiDisputeMonitoringEnabled(): boolean {
+    return this.indexerOptions.poiDisputeMonitoring
+  }
 
   async currentEpochNumber(): Promise<number> {
     return (await this.contracts.epochManager.currentEpoch()).toNumber()
@@ -128,6 +131,7 @@ export class NetworkMonitor {
   }
 
   async allocations(status: AllocationStatus): Promise<Allocation[]> {
+    const startTimeMs = Date.now()
     try {
       this.logger.debug(`Fetch ${status} allocations`)
       let dataRemaining = true
@@ -198,6 +202,9 @@ export class NetworkMonitor {
         )
       }
 
+      this.logger.debug(
+        `Finished fetching ${status} allocations in ${Date.now() - startTimeMs}ms`,
+      )
       return allocations
     } catch (error) {
       const err = indexerError(IndexerErrorCode.IE010, error)
@@ -407,15 +414,18 @@ export class NetworkMonitor {
     }
     let subgraphs: Subgraph[] = []
     const queryProgress = {
-      lastId: '',
-      first: 20,
+      pageSize: 1000,
       fetched: 0,
       exhausted: false,
       retriesRemaining: 10,
     }
-    this.logger.info(`Query subgraphs in batches of ${queryProgress.first}`)
+    this.logger.info(`Query subgraphs in batches of ${queryProgress.pageSize}`)
+    const groups: string[][] = []
+    for (let i = 0; i < ids.length; i += queryProgress.pageSize) {
+      groups.push(ids.slice(i, i + queryProgress.pageSize))
+    }
 
-    while (!queryProgress.exhausted) {
+    for (const group of groups) {
       this.logger.debug(`Query subgraphs by id`, {
         queryProgress: queryProgress,
         subgraphIds: ids,
@@ -423,13 +433,8 @@ export class NetworkMonitor {
       try {
         const result = await this.networkSubgraph.checkedQuery(
           gql`
-            query subgraphs($first: Int!, $lastId: String!, $subgraphs: [String!]!) {
-              subgraphs(
-                where: { id_gt: $lastId, id_in: $subgraphs }
-                orderBy: id
-                orderDirection: asc
-                first: $first
-              ) {
+            query subgraphs($subgraphs: [String!]!) {
+              subgraphs(where: { id_in: $subgraphs }, orderBy: id, orderDirection: asc) {
                 id
                 createdAt
                 versionCount
@@ -444,9 +449,7 @@ export class NetworkMonitor {
             }
           `,
           {
-            first: queryProgress.first,
-            lastId: queryProgress.lastId,
-            subgraphs: ids,
+            subgraphs: group,
           },
         )
 
@@ -479,10 +482,7 @@ export class NetworkMonitor {
           throw new Error(`No subgraph deployments found matching provided ids: ${ids}`)
         }
 
-        queryProgress.exhausted = results.length < queryProgress.first
         queryProgress.fetched += results.length
-        queryProgress.lastId = results[results.length - 1].id
-
         subgraphs = subgraphs.concat(results)
       } catch (error) {
         queryProgress.retriesRemaining--
@@ -652,7 +652,7 @@ export class NetworkMonitor {
     const deployments: SubgraphDeployment[] = []
     const queryProgress = {
       lastId: '',
-      first: 10,
+      first: 1000,
       fetched: 0,
       exhausted: false,
       retriesRemaining: 10,
@@ -992,14 +992,18 @@ Please submit an issue at https://github.com/graphprotocol/block-oracle/issues/n
   async monitorNetworkPauses(
     logger: Logger,
     contracts: NetworkContracts,
-    networkSubgraph: NetworkSubgraph,
+    networkSubgraph: SubgraphClient,
   ): Promise<Eventual<boolean>> {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const initialPauseValue = await contracts.controller.paused().catch((_) => {
       return false
     })
-    return timer(60_000)
-      .reduce(async (currentlyPaused) => {
+    return sequentialTimerReduce(
+      {
+        logger,
+        milliseconds: 60_000,
+      },
+      async (currentlyPaused) => {
         try {
           logger.debug('Query network subgraph isPaused state')
           const result = await networkSubgraph.checkedQuery(gql`
@@ -1029,11 +1033,12 @@ Please submit an issue at https://github.com/graphprotocol/block-oracle/issues/n
           })
           return currentlyPaused
         }
-      }, initialPauseValue)
-      .map((paused) => {
-        logger.info(paused ? `Network paused` : `Network active`)
-        return paused
-      })
+      },
+      initialPauseValue,
+    ).map((paused) => {
+      logger.info(paused ? `Network paused` : `Network active`)
+      return paused
+    })
   }
 
   async monitorIsOperator(
@@ -1049,30 +1054,32 @@ Please submit an issue at https://github.com/graphprotocol/block-oracle/issues/n
       return mutable(true)
     }
 
-    return timer(300_000)
-      .reduce(
-        async (isOperator) => {
-          try {
-            logger.debug('Check operator status')
-            return await contracts.staking.isOperator(wallet.address, indexerAddress)
-          } catch (err) {
-            logger.warn(
-              `Failed to check operator status for indexer, assuming it has not changed`,
-              { err: indexerError(IndexerErrorCode.IE008, err), isOperator },
-            )
-            return isOperator
-          }
-        },
-        await contracts.staking.isOperator(wallet.address, indexerAddress),
+    return sequentialTimerReduce(
+      {
+        logger,
+        milliseconds: 300_000,
+      },
+      async (isOperator) => {
+        try {
+          logger.debug('Check operator status')
+          return await contracts.staking.isOperator(wallet.address, indexerAddress)
+        } catch (err) {
+          logger.warn(
+            `Failed to check operator status for indexer, assuming it has not changed`,
+            { err: indexerError(IndexerErrorCode.IE008, err), isOperator },
+          )
+          return isOperator
+        }
+      },
+      await contracts.staking.isOperator(wallet.address, indexerAddress),
+    ).map((isOperator) => {
+      logger.info(
+        isOperator
+          ? `Have operator status for indexer`
+          : `No operator status for indexer`,
       )
-      .map((isOperator) => {
-        logger.info(
-          isOperator
-            ? `Have operator status for indexer`
-            : `No operator status for indexer`,
-        )
-        return isOperator
-      })
+      return isOperator
+    })
   }
 
   async claimableAllocations(disputableEpoch: number): Promise<Allocation[]> {

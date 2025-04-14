@@ -2,7 +2,6 @@ import { Counter, Gauge, Histogram } from 'prom-client'
 import axios from 'axios'
 import {
   Logger,
-  timer,
   BytesWriter,
   toAddress,
   formatGRT,
@@ -20,12 +19,13 @@ import {
   ensureAllocationSummary,
   TransactionManager,
   specification as spec,
+  sequentialTimerMap,
+  SubgraphClient,
 } from '..'
 import { DHeap } from '@thi.ng/heaps'
 import { BigNumber, BigNumberish, Contract } from 'ethers'
 import { Op } from 'sequelize'
 import pReduce from 'p-reduce'
-import { NetworkSubgraph } from '../network-subgraph'
 
 // Receipts are collected with a delay of 20 minutes after
 // the corresponding allocation was closed
@@ -71,7 +71,7 @@ export interface AllocationReceiptCollectorOptions {
   allocations: Eventual<Allocation[]>
   models: QueryFeeModels
   networkSpecification: spec.NetworkSpecification
-  networkSubgraph: NetworkSubgraph
+  networkSubgraph: SubgraphClient
 }
 
 export interface ReceiptCollector {
@@ -94,7 +94,7 @@ export class AllocationReceiptCollector implements ReceiptCollector {
   declare voucherRedemptionBatchThreshold: BigNumber
   declare voucherRedemptionMaxBatchSize: number
   declare protocolNetwork: string
-  declare networkSubgraph: NetworkSubgraph
+  declare networkSubgraph: SubgraphClient
 
   // eslint-disable-next-line @typescript-eslint/no-empty-function -- Private constructor to prevent direct instantiation
   private constructor() {}
@@ -264,7 +264,7 @@ export class AllocationReceiptCollector implements ReceiptCollector {
     }
 
     // Check if there's another batch of receipts to collect every 10s
-    timer(10_000).pipe(async () => {
+    sequentialTimerMap({ logger: this.logger, milliseconds: 10_000 }, async () => {
       while (hasReceiptsReadyForCollecting()) {
         // Remove the batch from the processing queue
         // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
@@ -283,7 +283,7 @@ export class AllocationReceiptCollector implements ReceiptCollector {
   }
 
   private startVoucherProcessing() {
-    timer(30_000).pipe(async () => {
+    sequentialTimerMap({ logger: this.logger, milliseconds: 30_000 }, async () => {
       let pendingVouchers: Voucher[] = []
       try {
         pendingVouchers = await this.pendingVouchers() // Ordered by value

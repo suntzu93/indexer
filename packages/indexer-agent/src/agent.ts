@@ -37,6 +37,7 @@ import {
   networkIsL1,
   DeploymentManagementMode,
   SubgraphStatus,
+  sequentialTimerMap,
 } from '@graphprotocol/indexer-common'
 
 import PQueue from 'p-queue'
@@ -231,7 +232,7 @@ export class Agent {
       async ({ network, operator }: NetworkAndOperator) => {
         try {
           await operator.ensureGlobalIndexingRule()
-          await this.ensureNetworkSubgraphIsIndexing(network)
+          await this.ensureAllSubgraphsIndexing(network)
           await network.register()
         } catch (err) {
           this.logger.critical(
@@ -253,40 +254,41 @@ export class Agent {
     const requestIntervalSmall = this.pollingInterval
     const requestIntervalLarge = this.pollingInterval * 5
     const logger = this.logger.child({ component: 'ReconciliationLoop' })
-    const currentEpochNumber: Eventual<NetworkMapped<number>> = timer(
-      requestIntervalLarge,
-    ).tryMap(
-      async () =>
-        await this.multiNetworks.map(({ network }) => {
-          logger.trace('Fetching current epoch number', {
-            protocolNetwork: network.specification.networkIdentifier,
-          })
-          return network.networkMonitor.currentEpochNumber()
-        }),
-      {
-        onError: error =>
-          logger.warn(`Failed to fetch current epoch`, { error }),
-      },
-    )
+    const currentEpochNumber: Eventual<NetworkMapped<number>> =
+      sequentialTimerMap(
+        { logger, milliseconds: requestIntervalLarge },
+        async () =>
+          await this.multiNetworks.map(({ network }) => {
+            logger.trace('Fetching current epoch number', {
+              protocolNetwork: network.specification.networkIdentifier,
+            })
+            return network.networkMonitor.currentEpochNumber()
+          }),
+        {
+          onError: error =>
+            logger.warn(`Failed to fetch current epoch`, { error }),
+        },
+      )
 
-    const maxAllocationEpochs: Eventual<NetworkMapped<number>> = timer(
-      requestIntervalLarge,
-    ).tryMap(
-      () =>
-        this.multiNetworks.map(({ network }) => {
-          logger.trace('Fetching max allocation epochs', {
-            protocolNetwork: network.specification.networkIdentifier,
-          })
-          return network.contracts.staking.maxAllocationEpochs()
-        }),
-      {
-        onError: error =>
-          logger.warn(`Failed to fetch max allocation epochs`, { error }),
-      },
-    )
+    const maxAllocationEpochs: Eventual<NetworkMapped<number>> =
+      sequentialTimerMap(
+        { logger, milliseconds: requestIntervalLarge },
+        () =>
+          this.multiNetworks.map(({ network }) => {
+            logger.trace('Fetching max allocation epochs', {
+              protocolNetwork: network.specification.networkIdentifier,
+            })
+            return network.contracts.staking.maxAllocationEpochs()
+          }),
+        {
+          onError: error =>
+            logger.warn(`Failed to fetch max allocation epochs`, { error }),
+        },
+      )
 
     const indexingRules: Eventual<NetworkMapped<IndexingRuleAttributes[]>> =
-      timer(requestIntervalSmall).tryMap(
+      sequentialTimerMap(
+        { logger, milliseconds: requestIntervalSmall },
         async () => {
           return this.multiNetworks.map(async ({ network, operator }) => {
             logger.trace('Fetching indexing rules', {
@@ -322,24 +324,36 @@ export class Agent {
         },
       )
 
-    const activeDeployments: Eventual<SubgraphDeploymentID[]> = timer(
-      requestIntervalSmall,
-    ).tryMap(
-      () => {
-        logger.trace('Fetching active deployments')
-        return this.graphNode.subgraphDeployments()
-      },
-      {
-        onError: error =>
-          logger.warn(
-            `Failed to obtain active deployments, trying again later`,
-            { error },
-          ),
-      },
-    )
+    // Skip fetching active deployments if the deployment management mode is manual and POI tracking is disabled
+    const activeDeployments: Eventual<SubgraphDeploymentID[]> =
+      sequentialTimerMap(
+        { logger, milliseconds: requestIntervalLarge },
+        async () => {
+          if (this.deploymentManagement === DeploymentManagementMode.AUTO) {
+            logger.debug('Fetching active deployments')
+            const assignments =
+              await this.graphNode.subgraphDeploymentsAssignments(
+                SubgraphStatus.ACTIVE,
+              )
+            return assignments.map(assignment => assignment.id)
+          } else {
+            logger.info(
+              "Skipping fetching active deployments fetch since DeploymentManagementMode = 'manual' and POI tracking is disabled",
+            )
+            return []
+          }
+        },
+        {
+          onError: error =>
+            logger.warn(
+              `Failed to obtain active deployments, trying again later ${error}`,
+            ),
+        },
+      )
 
     const networkDeployments: Eventual<NetworkMapped<SubgraphDeployment[]>> =
-      timer(requestIntervalSmall).tryMap(
+      sequentialTimerMap(
+        { logger, milliseconds: requestIntervalSmall },
         async () =>
           await this.multiNetworks.map(({ network }) => {
             logger.trace('Fetching network deployments', {
@@ -358,7 +372,8 @@ export class Agent {
 
     const eligibleTransferDeployments: Eventual<
       NetworkMapped<TransferredSubgraphDeployment[]>
-    > = timer(requestIntervalLarge).tryMap(
+    > = sequentialTimerMap(
+      { logger, milliseconds: requestIntervalLarge },
       async () => {
         // Return early if the auto migration feature is disabled.
         if (!this.autoMigrationSupport) {
@@ -552,29 +567,28 @@ export class Agent {
       {
         onError: error =>
           logger.warn(
-            `Failed to obtain target deployments, trying again later`,
-            { error },
+            `Failed to obtain target deployments, trying again later ${error}`,
           ),
       },
     )
 
-    const activeAllocations: Eventual<NetworkMapped<Allocation[]>> = timer(
-      requestIntervalSmall,
-    ).tryMap(
-      () =>
-        this.multiNetworks.map(({ network }) => {
-          logger.trace('Fetching active allocations', {
-            protocolNetwork: network.specification.networkIdentifier,
-          })
-          return network.networkMonitor.allocations(AllocationStatus.ACTIVE)
-        }),
-      {
-        onError: () =>
-          logger.warn(
-            `Failed to obtain active allocations, trying again later`,
-          ),
-      },
-    )
+    const activeAllocations: Eventual<NetworkMapped<Allocation[]>> =
+      sequentialTimerMap(
+        { logger, milliseconds: requestIntervalSmall },
+        () =>
+          this.multiNetworks.map(({ network }) => {
+            logger.trace('Fetching active allocations', {
+              protocolNetwork: network.specification.networkIdentifier,
+            })
+            return network.networkMonitor.allocations(AllocationStatus.ACTIVE)
+          }),
+        {
+          onError: () =>
+            logger.warn(
+              `Failed to obtain active allocations, trying again later`,
+            ),
+        },
+      )
 
     // `activeAllocations` is used to trigger this Eventual, but not really needed
     // inside.
@@ -1241,38 +1255,56 @@ export class Agent {
     )
   }
 
-  // TODO: This could be a initialization check inside Network.create() once/if the Indexer Service
-  // uses Network instances.
-  async ensureNetworkSubgraphIsIndexing(network: Network) {
+  // TODO: After indexer-service deprecation: Move to be an initialization check inside Network.create()
+  async ensureSubgraphIndexing(deployment: string, networkIdentifier: string) {
+    try {
+      // TODO: Check both the local deployment and the external subgraph endpoint
+      // Make sure the subgraph is being indexed
+      await this.graphNode.ensure(
+        `indexer-agent/${deployment.slice(-10)}`,
+        new SubgraphDeploymentID(deployment),
+      )
+
+      // Validate if the Network Subgraph belongs to the current provider's network.
+      // This check must be performed after we ensure the Network Subgraph is being indexed.
+      await validateProviderNetworkIdentifier(
+        networkIdentifier,
+        deployment,
+        this.graphNode,
+        this.logger,
+      )
+    } catch (e) {
+      this.logger.warn(
+        'Failed to deploy and validate Network Subgraph on index-nodes. Will use external subgraph endpoint instead',
+        e,
+      )
+    }
+  }
+  async ensureAllSubgraphsIndexing(network: Network) {
+    // Network subgraph
     if (
       network.specification.subgraphs.networkSubgraph.deployment !== undefined
     ) {
-      try {
-        // TODO: Check both the local deployment and the external subgraph endpoint
-        // Make sure the network subgraph is being indexed
-        await this.graphNode.ensure(
-          `indexer-agent/${network.specification.subgraphs.networkSubgraph.deployment.slice(
-            -10,
-          )}`,
-          new SubgraphDeploymentID(
-            network.specification.subgraphs.networkSubgraph.deployment,
-          ),
-        )
-
-        // Validate if the Network Subgraph belongs to the current provider's network.
-        // This check must be performed after we ensure the Network Subgraph is being indexed.
-        await validateProviderNetworkIdentifier(
-          network.specification.networkIdentifier,
-          network.specification.subgraphs.networkSubgraph.deployment,
-          this.graphNode,
-          this.logger,
-        )
-      } catch (e) {
-        this.logger.warn(
-          'Failed to deploy and validate Network Subgraph on index-nodes. Will use external subgraph endpoint instead',
-          e,
-        )
-      }
+      await this.ensureSubgraphIndexing(
+        network.specification.subgraphs.networkSubgraph.deployment,
+        network.specification.networkIdentifier,
+      )
+    }
+    // Epoch subgraph
+    if (
+      network.specification.subgraphs.epochSubgraph.deployment !== undefined
+    ) {
+      await this.ensureSubgraphIndexing(
+        network.specification.subgraphs.epochSubgraph.deployment,
+        network.specification.networkIdentifier,
+      )
+    }
+    // TAP subgraph
+    if (network.specification.subgraphs.tapSubgraph?.deployment !== undefined) {
+      await this.ensureSubgraphIndexing(
+        network.specification.subgraphs.tapSubgraph.deployment,
+        network.specification.networkIdentifier,
+      )
     }
   }
 }

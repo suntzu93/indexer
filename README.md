@@ -1,7 +1,6 @@
 # Graph Protocol Indexer Components
 
 ![CI](https://github.com/graphprotocol/indexer/workflows/CI/badge.svg)
-[![Docker Image: Indexer Service](https://github.com/graphprotocol/indexer/workflows/Indexer%20Service%20Image/badge.svg)](https://github.com/orgs/graphprotocol/packages/container/package/indexer-service)
 [![Docker Image: Indexer Agent](https://github.com/graphprotocol/indexer/workflows/Indexer%20Agent%20Image/badge.svg)](https://github.com/orgs/graphprotocol/packages/container/package/indexer-agent)
 
 **NOTE: THIS PROJECT IS BETA SOFTWARE.**
@@ -19,7 +18,6 @@ query fees, can be found [here](./docs/scalar.md).
 The indexer service, agent and CLI can be installed as NPM packages, using
 
 ```sh
-npm install -g @graphprotocol/indexer-service
 npm install -g @graphprotocol/indexer-agent
 
 # Indexer CLI is a plugin for Graph CLI, so both need to be installed:
@@ -30,9 +28,6 @@ npm install -g @graphprotocol/indexer-cli
 After that, they can be run with the following commands:
 
 ```sh
-# Indexer service
-graph-indexer-service start ...
-
 # Indexer agent
 graph-indexer-agent start ...
 
@@ -41,68 +36,6 @@ graph indexer ...
 ```
 
 ## Usage
-
-### Indexer service
-
-```sh
-$ graph-indexer-service start --help
-
-Start the service
-
-Ethereum
-  --ethereum                   Ethereum node or provider URL [string] [required]
-  --ethereum-network           Ethereum network    [string] [default: "mainnet"]
-  --ethereum-polling-interval  Polling interval for the Ethereum provider (ms)
-                                                        [number] [default: 4000]
-  --mnemonic                   Mnemonic for the operator wallet
-                                                             [string] [required]
-  --indexer-address            Ethereum address of the indexer
-                                                             [string] [required]
-
-Indexer Infrastructure
-  --port                        Port to serve queries at[number] [default: 7600]
-  --metrics-port                Port to serve Prometheus metrics at
-                                                        [number] [default: 7300]
-  --graph-node-query-endpoint   Graph Node endpoint to forward queries to
-                                                             [string] [required]
-  --graph-node-status-endpoint  Graph Node endpoint for indexing statuses etc.
-                                                             [string] [required]
-  --log-level                   Log level            [string] [default: "debug"]
-
-Postgres
-  --postgres-host      Postgres host                         [string] [required]
-  --postgres-port      Postgres port                    [number] [default: 5432]
-  --postgres-username  Postgres username          [string] [default: "postgres"]
-  --postgres-password  Postgres password                  [string] [default: ""]
-  --postgres-database  Postgres database name                [string] [required]
-
-Network Subgraph
-  --network-subgraph-endpoint    Endpoint to query the network subgraph from
-                                                             [string] [required]
-  --network-subgraph-auth-token  Bearer token to require for /network queries
-                                                                        [string]
-  --serve-network-subgraph       Whether to serve the network subgraph at
-                                 /network             [boolean] [default: false]
-  --allocation-syncing-interval  Interval (in ms) for syncing indexer
-                                 allocations from the network
-                                                      [number] [default: 120000]
-
-Query Fees
-  --vector-node                 URL of a vector node                    [string]
-  --vector-router               Public identifier of the vector router  [string]
-  --vector-transfer-definition  Address of the Graph transfer definition
-                                contract              [string] [default: "auto"]
-
-Options:
-  --version                Show version number                         [boolean]
-  --help                   Show help                                   [boolean]
-  --gcloud-profiling       Whether to enable Google Cloud profiling
-                                                      [boolean] [default: false]
-  --free-query-auth-token  Auth token that clients can use to query for free
-                                                                         [array]
-  --client-signer-address  Address that signs query fee receipts from a known
-                           client                                       [string]
-```
 
 ### Indexer agent
 
@@ -206,10 +139,6 @@ Protocol
   --epoch-subgraph-endpoint    Endpoint to query epoch start blocks from
                                                              [string] [required]
 
-Cost Models
-  --inject-dai  Inject the GRT to DAI/USDC conversion rate into cost model
-                variables                              [boolean] [default: true]
-
 Postgres
   --postgres-host      Postgres host                         [string] [required]
   --postgres-port      Postgres port                    [number] [default: 5432]
@@ -238,9 +167,6 @@ Query Fees
 Options:
   --version             Show version number                            [boolean]
   --help                Show help                                      [boolean]
-  --dai-contract        Address of the DAI or USDC contract to use for the
-                        --inject-dai conversion rate
-                [string] [default: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"]
   --offchain-subgraphs  Subgraphs to index that are not on chain
                         (comma-separated)                  [array] [default: []]
 ```
@@ -266,9 +192,8 @@ Manage indexer configuration
   indexer rules                      Configure indexing rules                                         
   indexer disputes get               Cross-check POIs submitted in the network                        
   indexer disputes                   Configure allocation POI monitoring                              
-  indexer cost set variables         Update cost model variables                                      
   indexer cost set model             Update a cost model                                              
-  indexer cost get                   Get cost models and/or variables for one or all subgraphs        
+  indexer cost get                   Get cost models for one or all subgraphs        
   indexer cost                       Manage costing for subgraphs                                     
   indexer connect                    Connect to indexer management API                                
   indexer allocations reallocate     Reallocate to subgraph deployment                                
@@ -294,13 +219,9 @@ build the packages:
 yarn
 ```
 
-After this, the indexer service and agent can be run with:
+After this, the agent can be run with:
 
 ```sh
-# Indexer service
-cd packages/indexer-service
-./bin/graph-indexer-service start ...
-
 # Indexer agent
 cd packages/indexer-agent
 ./bin/graph-indexer-agent start ...
@@ -308,23 +229,16 @@ cd packages/indexer-agent
 
 ## Docker images
 
-The easiest way to run the indexer service agent is by using Docker. Docker
+The easiest way to run the indexer agent is by using Docker. Docker
 images can either be pulled via
 
 ```sh
-docker pull ghcr.io/graphprotocol/indexer-service:latest
 docker pull ghcr.io/graphprotocol/indexer-agent:latest
 ```
 
 or built locally with
 
 ```sh
-# Indexer service
-docker build \
-  -f Dockerfile.indexer-service \
-  -t indexer-service:latest \
-  .
-
 # Indexer agent
 docker build \
   -f Dockerfile.indexer-agent \
@@ -332,18 +246,9 @@ docker build \
   .
 ```
 
-After this, the indexer agent and service can be run as follows:
+After this, the indexer agent can be run as follows:
 
-1. Indexer service:
-
-   ```sh
-   docker run -p 7600:7600 -it indexer-service:latest ...
-   ```
-
-   After this, the indexer service should be up and running at
-   http://localhost:7600/.
-
-2. Indexer Agent
+1. Indexer Agent
 
    ```sh
    docker run -p 18000:8000 -it indexer-agent:latest ...
@@ -371,7 +276,6 @@ workspaces](https://classic.yarnpkg.com/en/docs/workspaces/).
 [chan](https://github.com/geut/chan/tree/master/packages/chan) is
 used to maintain the following changelogs:
 
-- [indexer-service](packages/indexer-service/CHANGELOG.md)
 - [indexer-agent](packages/indexer-agent/CHANGELOG.md)
 - [indexer-cli](packages/indexer-cli/CHANGELOG.md)
 - [indexer-common](packages/indexer-common/CHANGELOG.md)
@@ -381,14 +285,10 @@ Creating a new release involves the following steps:
 1. Update all changelogs:
 
    ```sh
-   pushd packages/indexer-service
+   pushd packages/indexer-agent
    chan added ...
    chan fixed ...
    chan changed ...
-   popd
-
-   pushd packages/indexer-agent
-   ...
    popd
 
    pushd packages/indexer-cli
@@ -407,6 +307,41 @@ Creating a new release involves the following steps:
    ```sh
    yarn release <version>
    ```
+
+## Running tests locally
+
+To run the tests locally, you'll need:
+1. Docker installed and running
+2. Node.js and Yarn
+3. An Arbitrum Sepolia testnet RPC provider (e.g., Infura, Alchemy)
+4. An API key from The Graph Studio for querying subgraphs
+
+### Setup
+
+1. Create a `.env` file in the root directory with your credentials. You can copy the example file as a template:
+```sh
+cp .env.example .env
+```
+
+Then edit `.env` with your credentials:
+```plaintext
+# Your Arbitrum Sepolia testnet RPC endpoint
+INDEXER_TEST_JRPC_PROVIDER_URL=https://sepolia.infura.io/v3/your-project-id
+
+# Your API key from The Graph Studio (https://thegraph.com/studio/)
+INDEXER_TEST_API_KEY=your-graph-api-key-here
+```
+
+2. Run the tests:
+```sh
+bash scripts/run-tests.sh
+```
+
+The script will:
+- Start a PostgreSQL container with the required test configuration
+- Load your credentials from the `.env` file
+- Run the test suite
+- Clean up the PostgreSQL container when done
 
 # Copyright
 

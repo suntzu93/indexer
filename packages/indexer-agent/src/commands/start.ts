@@ -11,6 +11,7 @@ import {
   SubgraphDeploymentID,
 } from '@graphprotocol/common-ts'
 import {
+  common_init,
   createIndexerManagementClient,
   createIndexerManagementServer,
   defineIndexerManagementModels,
@@ -26,7 +27,6 @@ import {
   specification as spec,
 } from '@graphprotocol/indexer-common'
 import { Agent } from '../agent'
-import { startCostModelAutomation } from '../cost'
 import { createSyncingServer } from '../syncing-server'
 import { injectCommonStartupOptions } from './common-options'
 import pMap from 'p-map'
@@ -39,7 +39,7 @@ import { AgentConfigs } from '../types'
 // eslint-disable-next-line  @typescript-eslint/no-explicit-any
 export type AgentOptions = { [key: string]: any } & Argv['argv']
 
-const DEFAULT_SUBGRAPH_MAX_BLOCK_DISTANCE = 0
+const DEFAULT_SUBGRAPH_MAX_BLOCK_DISTANCE = 1000
 const SUGGESTED_SUBGRAPH_MAX_BLOCK_DISTANCE_ON_L2 =
   50 + DEFAULT_SUBGRAPH_MAX_BLOCK_DISTANCE
 const DEFAULT_SUBGRAPH_FRESHNESS_SLEEP_MILLISECONDS = 5_000
@@ -141,7 +141,7 @@ export const start = {
         },
       })
       .option('network-subgraph-deployment', {
-        description: 'Network subgraph deployment',
+        description: 'Network subgraph deployment (for local hosting)',
         array: false,
         type: 'string',
         group: 'Network Subgraph',
@@ -151,6 +151,12 @@ export const start = {
         array: false,
         type: 'string',
         group: 'Network Subgraph',
+      })
+      .option('tap-subgraph-deployment', {
+        description: 'TAP subgraph deployment (for local hosting)',
+        array: false,
+        type: 'string',
+        group: 'TAP Subgraph',
       })
       .option('tap-subgraph-endpoint', {
         description: 'Endpoint to query the tap subgraph from',
@@ -162,6 +168,12 @@ export const start = {
         description: 'Whether to allocate to the network subgraph',
         type: 'boolean',
         default: false,
+        group: 'Network Subgraph',
+      })
+      .option('epoch-subgraph-deployment', {
+        description: 'Epoch subgraph deployment (for local hosting)',
+        array: false,
+        type: 'string',
         group: 'Network Subgraph',
       })
       .option('epoch-subgraph-endpoint', {
@@ -235,13 +247,6 @@ export const start = {
         default: 100,
         group: 'Query Fees',
       })
-      .option('inject-dai', {
-        description:
-          'Inject the GRT to DAI/USDC conversion rate into cost model variables',
-        type: 'boolean',
-        default: false,
-        group: 'Cost Models',
-      })
       .option('address-book', {
         description: 'Graph contracts address book file path',
         type: 'string',
@@ -256,13 +261,6 @@ export const start = {
         description: 'The time in seconds that the chain finalizes blocks',
         type: 'number',
         default: 3600,
-      })
-      .option('dai-contract', {
-        description:
-          'Address of the DAI or USDC contract to use for the --inject-dai conversion rate',
-        type: 'string',
-        // Default to USDC
-        default: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
       })
       .option('register', {
         description: 'Whether to register the indexer on chain',
@@ -385,18 +383,13 @@ export async function createNetworkSpecification(
       url: argv.networkSubgraphEndpoint,
     },
     epochSubgraph: {
-      // TODO: We should consider indexing the Epoch Subgraph, similar
-      // to how we currently do it for the Network Subgraph.
+      deployment: argv.epochSubgraphDeployment,
       url: argv.epochSubgraphEndpoint,
     },
     tapSubgraph: {
+      deployment: argv.tapSubgraphDeployment,
       url: argv.tapSubgraphEndpoint,
     },
-  }
-
-  const dai = {
-    contractAddress: argv.daiContractAddress,
-    inject: argv.injectDai,
   }
 
   const networkProvider = {
@@ -441,12 +434,6 @@ export async function createNetworkSpecification(
     }
   }
 
-  if (chainId !== 1 && dai.inject) {
-    throw new Error(
-      `The DAI injection feature for cost models is only supported on Ethereum Mainnet`,
-    )
-  }
-
   const tapAddressBook = loadFile(argv.tapAddressBook)
 
   try {
@@ -459,7 +446,6 @@ export async function createNetworkSpecification(
       networkProvider,
       addressBook: argv.addressBook,
       tapAddressBook,
-      dai,
     })
   } catch (parsingError) {
     displayZodParsingError(parsingError)
@@ -477,6 +463,7 @@ export async function run(
   networkSpecifications: spec.NetworkSpecification[],
   logger: Logger,
 ): Promise<void> {
+  await common_init(logger)
   // --------------------------------------------------------------------------------
   // * Configure event  listeners for unhandled promise  rejections and uncaught
   // exceptions.
@@ -515,6 +502,7 @@ export async function run(
     argv.graphNodeAdminEndpoint,
     argv.graphNodeQueryEndpoint,
     argv.graphNodeStatusEndpoint,
+    argv.ipfsEndpoint,
   )
 
   // --------------------------------------------------------------------------------
@@ -632,16 +620,6 @@ export async function run(
     port: argv.indexerManagementPort,
   })
   logger.info(`Successfully launched indexer management API server`)
-
-  // --------------------------------------------------------------------------------
-  // * Cost Model Automation
-  // --------------------------------------------------------------------------------
-  await startCostModelAutomation({
-    logger,
-    networks,
-    indexerManagement: indexerManagementClient,
-    metrics,
-  })
 
   // --------------------------------------------------------------------------------
   // * Syncing Server

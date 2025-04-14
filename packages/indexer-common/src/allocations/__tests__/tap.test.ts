@@ -51,6 +51,7 @@ const setup = async () => {
     'https://test-admin-endpoint.xyz',
     'https://test-query-endpoint.xyz',
     'https://test-status-endpoint.xyz',
+    'https://test-ipfs-endpoint.xyz',
   )
 
   const network = await Network.create(
@@ -281,6 +282,55 @@ describe('TAP', () => {
     ])
   })
 
+  test('should mark ravs as redeemed via `markRavsInTransactionsAsRedeemed`', async () => {
+    const nowSecs = Math.floor(Date.now() / 1000)
+    const transactions = {
+      transactions: [
+        {
+          id: 'test',
+          allocationID: ALLOCATION_ID_2.toString().toLowerCase().replace('0x', ''),
+          timestamp: nowSecs,
+          sender: {
+            id: SENDER_ADDRESS_3.toString().toLowerCase().replace('0x', ''),
+          },
+        },
+      ],
+      _meta: {
+        block: {
+          timestamp: nowSecs,
+          hash: 'test',
+        },
+      },
+    }
+
+    const rav2 = {
+      allocationId: ALLOCATION_ID_2,
+      last: true,
+      final: false,
+      timestampNs: 1709067401177959664n,
+      valueAggregate: 20000000000000n,
+      signature: SIGNATURE,
+      senderAddress: SENDER_ADDRESS_3,
+      redeemedAt: null,
+    }
+    await queryFeeModels.receiptAggregateVouchers.create(rav2)
+    const ravs = await tapCollector['pendingRAVs']()
+    await tapCollector['markRavsInTransactionsAsRedeemed'](transactions, ravs)
+    const redeemedRavs = await queryFeeModels.receiptAggregateVouchers.findAll({
+      where: {
+        last: true,
+        final: false,
+        redeemedAt: {
+          [Op.ne]: null,
+        },
+      },
+    })
+    // Expect redeemed rav to be returned here
+    expect(redeemedRavs).toEqual([
+      expect.objectContaining({ ...rav2, redeemedAt: new Date(nowSecs * 1000) }),
+    ])
+  })
+
   test('should mark ravs as final via `markRavsAsFinal`', async () => {
     // we have a redeemed non-final rav in our database
     const nowSecs = Math.floor(Date.now() / 1000)
@@ -505,7 +555,8 @@ describe('TAP', () => {
     timeout,
   )
 
-  test('test `submitRAVs` with escrow account lower on balance', async () => {
+  // Skipped until we can run with local-network in CI
+  test.skip('test `submitRAVs` with escrow account lower on balance', async () => {
     // mock redeemRav to not call the blockchain
     const redeemRavFunc = jest
       .spyOn(tapCollector, 'redeemRav')

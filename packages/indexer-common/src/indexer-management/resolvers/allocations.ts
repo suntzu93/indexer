@@ -24,8 +24,8 @@ import {
   IndexerManagementResolverContext,
   IndexingDecisionBasis,
   IndexingRuleAttributes,
-  NetworkSubgraph,
   ReallocateAllocationResult,
+  SubgraphClient,
   SubgraphIdentifierType,
   uniqueAllocationID,
 } from '@graphprotocol/indexer-common'
@@ -173,7 +173,7 @@ const ALLOCATION_QUERIES = {
 
 async function queryAllocations(
   logger: Logger,
-  networkSubgraph: NetworkSubgraph,
+  networkSubgraph: SubgraphClient,
   variables: {
     indexer: Address
     allocation: Address | null
@@ -711,11 +711,12 @@ export default {
         allocation: closeAllocationEventLogs.allocationID,
       })
 
+      // TODO: deprecated
       // Collect query fees for this allocation
-      const isCollectingQueryFees = await receiptCollector.collectReceipts(
-        0,
-        allocationData,
-      )
+      let isCollectingQueryFees = false
+      if (receiptCollector) {
+        isCollectingQueryFees = await receiptCollector.collectReceipts(0, allocationData)
+      }
 
       logger.debug(
         `Updating indexing rules, so indexer-agent keeps the deployment synced but doesn't reallocate to it`,
@@ -1016,11 +1017,12 @@ export default {
         allocation: closeAllocationEventLogs.allocationID,
       })
 
-      // Collect query fees for this allocation
-      const isCollectingQueryFees = await receiptCollector.collectReceipts(
-        0,
-        allocationData,
-      )
+      // TODO: deprecated
+      let isCollectingQueryFees = false
+      if (receiptCollector) {
+        // Collect query fees for this allocation
+        isCollectingQueryFees = await receiptCollector.collectReceipts(0, allocationData)
+      }
 
       logger.debug(
         `Updating indexing rules, so indexer-agent will now manage the active allocation`,
@@ -1061,6 +1063,7 @@ export default {
     }
   },
 
+  // TODO: deprecated
   submitCollectReceiptsJob: async (
     {
       allocation,
@@ -1092,7 +1095,10 @@ export default {
       })
 
       // Collect query fees for this allocation
-      const collecting = await receiptCollector.collectReceipts(0, allocationData)
+      let collecting = false
+      if (receiptCollector) {
+        collecting = await receiptCollector.collectReceipts(0, allocationData)
+      }
 
       logger.info(`Submitted allocation receipt collection job for execution`, {
         allocationID: allocation,

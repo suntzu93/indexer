@@ -1,13 +1,15 @@
 import axios, { AxiosInstance, AxiosResponse } from 'axios'
-import { Eventual, Logger, SubgraphDeploymentID, timer } from '@graphprotocol/common-ts'
+import { Eventual, Logger, SubgraphDeploymentID } from '@graphprotocol/common-ts'
 import { DocumentNode, print } from 'graphql'
 import { OperationResult, CombinedError } from '@urql/core'
 import { BlockPointer, IndexingError } from './types'
 import { GraphNode } from './graph-node'
 import { SubgraphFreshnessChecker } from './subgraphs'
+import { sequentialTimerReduce } from './sequential-timer'
 
-export interface NetworkSubgraphCreateOptions {
+export interface SubgraphCreateOptions {
   logger: Logger
+  name: string
   endpoint?: string
   deployment?: {
     graphNode: GraphNode
@@ -24,7 +26,8 @@ interface DeploymentStatus {
   fatalError?: IndexingError
 }
 
-interface NetworkSubgraphOptions {
+interface SubgraphOptions {
+  name: string
   logger: Logger
   endpoint?: string
   deployment?: {
@@ -40,14 +43,15 @@ export type QueryResult<Data> = Pick<
   'error' | 'data' | 'extensions'
 >
 
-export class NetworkSubgraph {
+export class SubgraphClient {
+  name: string
   logger: Logger
   freshnessChecker: SubgraphFreshnessChecker | undefined
   endpointClient?: AxiosInstance
-  /** Endpoint URL for the Network Subgraph Endpoint from the config  */
-  private networkSubgraphConfigEndpoint?: string
-  /** Endpoint URL for the Network Subgraph Endpoint from the deployment  */
-  private networkSubgraphDeploymentEndpoint?: string
+  /** Endpoint URL for the Subgraph Endpoint from the config  */
+  private subgraphConfigEndpoint?: string
+  /** Endpoint URL for the Subgraph Endpoint from the deployment  */
+  private subgraphDeploymentEndpoint?: string
   endpoint?: string
 
   public readonly deployment?: {
@@ -56,12 +60,14 @@ export class NetworkSubgraph {
     endpointClient: AxiosInstance
   }
 
-  private constructor(options: NetworkSubgraphOptions) {
+  private constructor(options: SubgraphOptions) {
+    this.name = options.name
     this.logger = options.logger
     this.freshnessChecker = options.subgraphFreshnessChecker
-    this.networkSubgraphConfigEndpoint = options.endpoint
-    this.networkSubgraphDeploymentEndpoint =
-      options.deployment?.graphNode.getQueryEndpoint(options.deployment.id.ipfsHash)
+    this.subgraphConfigEndpoint = options.endpoint
+    this.subgraphDeploymentEndpoint = options.deployment?.graphNode.getQueryEndpoint(
+      options.deployment.id.ipfsHash,
+    )
 
     if (options.endpoint) {
       this.endpointClient = axios.create({
@@ -74,7 +80,7 @@ export class NetworkSubgraph {
         // Don't transform responses
         transformResponse: (data) => data,
       })
-      this.endpoint = this.networkSubgraphConfigEndpoint
+      this.endpoint = this.subgraphConfigEndpoint
     }
 
     if (options.deployment) {
@@ -89,23 +95,24 @@ export class NetworkSubgraph {
         status,
         endpointClient: graphNodeEndpointClient,
       }
-      this.endpoint = this.networkSubgraphDeploymentEndpoint
+      this.endpoint = this.subgraphDeploymentEndpoint
     }
   }
 
   public static async create({
     logger: parentLogger,
+    name,
     endpoint,
     deployment,
     subgraphFreshnessChecker,
-  }: NetworkSubgraphCreateOptions): Promise<NetworkSubgraph> {
+  }: SubgraphCreateOptions): Promise<SubgraphClient> {
     // Either an endpoint or a deployment needs to be provided; the CLI
     // validation should already guarantee that but we're asserting this again
     // here, just to be on the safe side
     console.assert(endpoint || deployment)
 
     const logger = parentLogger.child({
-      component: 'NetworkSubgraph',
+      component: name,
       endpoint,
       deployment: deployment?.deployment.ipfsHash,
     })
@@ -120,6 +127,7 @@ export class NetworkSubgraph {
 
     if (deployment) {
       const status = await monitorDeployment({
+        name,
         logger,
         graphNode: deployment.graphNode,
         deployment: deployment.deployment,
@@ -132,22 +140,23 @@ export class NetworkSubgraph {
       }
     }
 
-    // Create the network subgraph instance
-    const networkSubgraph = new NetworkSubgraph({
+    // Create the subgraph instance
+    const subgraph = new SubgraphClient({
+      name,
       logger,
       endpoint,
       deployment: deploymentInfo,
       subgraphFreshnessChecker,
     })
 
-    // If we don't have a network subgraph endpoint configured, we
+    // If we don't have a subgraph endpoint configured, we
     // need to wait until the deployment is synced
     if (!endpoint) {
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       await deploymentInfo!.status.filter((status) => status.synced).value()
     }
 
-    return networkSubgraph
+    return subgraph
   }
 
   private async getClient(): Promise<AxiosInstance> {
@@ -156,24 +165,24 @@ export class NetworkSubgraph {
       const healthy = status.synced && status.health === 'healthy'
 
       if (healthy) {
-        this.logger.trace('Use own deployment for network subgraph query')
-        this.endpoint = this.networkSubgraphDeploymentEndpoint
+        this.logger.trace(`Use own deployment for ${this.name} query`, { status })
+        this.endpoint = this.subgraphDeploymentEndpoint
         return this.deployment.endpointClient
       } else if (this.endpointClient) {
-        this.logger.trace('Use provided endpoint for network subgraph query')
-        this.endpoint = this.networkSubgraphConfigEndpoint
+        this.logger.trace(`Use provided endpoint for ${this.name} query`, { status })
+        this.endpoint = this.subgraphConfigEndpoint
         return this.endpointClient
       } else {
         // We have no endpoint and our deployment is not synced or unhealthy;
         // there's no way to proceed from here, so crash
         this.logger.critical(
-          `No network subgraph deployment endpoint provided and network subgraph deployment is unhealthy`,
+          `No ${this.name} deployment endpoint provided and ${this.name} deployment is unhealthy`,
         )
         process.exit(1)
       }
     } else {
-      this.logger.trace('Use provided endpoint for network subgraph query')
-      this.endpoint = this.networkSubgraphConfigEndpoint
+      this.logger.trace(`Use provided endpoint for ${this.name} query`)
+      this.endpoint = this.subgraphConfigEndpoint
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       return this.endpointClient!
     }
@@ -217,10 +226,12 @@ export class NetworkSubgraph {
 }
 
 const monitorDeployment = async ({
+  name,
   logger,
   graphNode,
   deployment,
 }: {
+  name: string
   logger: Logger
   graphNode: GraphNode
   deployment: SubgraphDeploymentID
@@ -233,52 +244,59 @@ const monitorDeployment = async ({
     fatalError: undefined,
   }
 
-  return timer(60_000).reduce(async (lastStatus) => {
-    try {
-      logger.trace(`Checking the network subgraph deployment status`)
+  return sequentialTimerReduce(
+    {
+      logger,
+      milliseconds: 60_000,
+    },
+    async (lastStatus) => {
+      try {
+        logger.trace(`Checking the ${name} deployment status`)
 
-      const indexingStatuses = await graphNode.indexingStatus([deployment])
-      const indexingStatus = indexingStatuses.pop()
-      if (!indexingStatus) {
-        throw `No indexing status found`
-      }
+        const indexingStatuses = await graphNode.indexingStatus([deployment])
+        const indexingStatus = indexingStatuses.pop()
+        if (!indexingStatus) {
+          throw `No indexing status found`
+        }
 
-      const status = {
-        health: indexingStatus.health,
-        synced: indexingStatus.synced,
-        latestBlock: indexingStatus.chains[0]?.latestBlock,
-        chainHeadBlock: indexingStatus.chains[0]?.chainHeadBlock,
-        fatalError: indexingStatus.fatalError,
-      }
+        const status = {
+          health: indexingStatus.health,
+          synced: indexingStatus.synced,
+          latestBlock: indexingStatus.chains[0]?.latestBlock,
+          chainHeadBlock: indexingStatus.chains[0]?.chainHeadBlock,
+          fatalError: indexingStatus.fatalError,
+        }
 
-      // If failed for the first time, log an error
-      if (!lastStatus || (!lastStatus.fatalError && status.fatalError)) {
-        logger.error(`Failed to index network subgraph deployment`, {
-          err: status.fatalError,
-          latestBlock: status.latestBlock,
-        })
-      }
+        // If failed for the first time, log an error
+        if (!lastStatus || (!lastStatus.fatalError && status.fatalError)) {
+          logger.error(`Failed to index ${name} deployment`, {
+            err: status.fatalError,
+            latestBlock: status.latestBlock,
+          })
+        }
 
-      // Don't log anything else after the subgraph has failed
-      if (status.fatalError) {
+        // Don't log anything else after the subgraph has failed
+        if (status.fatalError) {
+          return status
+        }
+
+        // If not synced yet, log the progress so far
+        if (!status.synced) {
+          const latestBlock = status.latestBlock?.number || 0
+          const chainHeadBlock = status.chainHeadBlock?.number || 1
+
+          const syncedPercent = ((100 * latestBlock) / chainHeadBlock).toFixed(2)
+
+          logger.debug(
+            `${name} is synced ${syncedPercent}% (block #${latestBlock} of #${chainHeadBlock})`,
+          )
+        }
+
         return status
+      } catch (err) {
+        return lastStatus
       }
-
-      // If not synced yet, log the progress so far
-      if (!status.synced) {
-        const latestBlock = status.latestBlock?.number || 0
-        const chainHeadBlock = status.chainHeadBlock?.number || 1
-
-        const syncedPercent = ((100 * latestBlock) / chainHeadBlock).toFixed(2)
-
-        logger.info(
-          `Network subgraph is synced ${syncedPercent}% (block #${latestBlock} of #${chainHeadBlock})`,
-        )
-      }
-
-      return status
-    } catch (err) {
-      return lastStatus
-    }
-  }, initialStatus)
+    },
+    initialStatus,
+  )
 }
