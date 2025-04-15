@@ -19,7 +19,6 @@ import {
   GraphNode,
   indexerError,
   IndexerErrorCode,
-  MultiNetworks,
   Network,
   Operator,
   registerIndexerErrorMetrics,
@@ -29,8 +28,6 @@ import {
 import { Agent } from '../agent'
 import { createSyncingServer } from '../syncing-server'
 import { injectCommonStartupOptions } from './common-options'
-import pMap from 'p-map'
-import { NetworkSpecification } from '@graphprotocol/indexer-common/dist/network-specification'
 import { BigNumber } from 'ethers'
 import { displayZodParsingError } from '@graphprotocol/indexer-common'
 import { readFileSync } from 'fs'
@@ -50,7 +47,15 @@ export const start = {
   describe: 'Start the agent',
   builder: (args: Argv): Argv => {
     const updatedArgs = injectCommonStartupOptions(args)
+
     return updatedArgs
+      .option('network-specifications-directory', {
+        alias: 'dir',
+        description:
+          'Path to a directory containing network specification files',
+        type: 'string',
+        required: false,
+      })
       .option('network-provider', {
         alias: 'ethereum',
         description: 'Ethereum node or provider URL',
@@ -460,7 +465,7 @@ function loadFile(path: string | undefined): unknown | undefined {
 
 export async function run(
   argv: AgentOptions,
-  networkSpecifications: spec.NetworkSpecification[],
+  networkSpecification: spec.NetworkSpecification,
   logger: Logger,
 ): Promise<void> {
   await common_init(logger)
@@ -546,7 +551,7 @@ export async function run(
         queryInterface: sequelize.getQueryInterface(),
         logger,
         graphNodeAdminEndpoint: argv.graphNodeAdminEndpoint,
-        networkSpecifications,
+        networkSpecifications: [networkSpecification],
         graphNode: graphNode,
       },
       storage: new SequelizeStorage({ sequelize }),
@@ -576,23 +581,21 @@ export async function run(
   // --------------------------------------------------------------------------------
   // * Networks
   // --------------------------------------------------------------------------------
-  logger.info('Connect to network/s', {
-    networks: networkSpecifications.map(spec => spec.networkIdentifier),
+  logger.info('Connect to network', {
+    networks: networkSpecification.networkIdentifier,
   })
 
-  const networks: Network[] = await pMap(
-    networkSpecifications,
-    async (spec: NetworkSpecification) =>
-      Network.create(logger, spec, queryFeeModels, graphNode, metrics),
+  const network = await Network.create(
+    logger,
+    networkSpecification,
+    queryFeeModels,
+    graphNode,
+    metrics,
   )
 
   // --------------------------------------------------------------------------------
   // * Indexer Management (GraphQL) Server
   // --------------------------------------------------------------------------------
-  const multiNetworks = new MultiNetworks(
-    networks,
-    (n: Network) => n.specification.networkIdentifier,
-  )
 
   const indexerManagementClient = await createIndexerManagementClient({
     models: managementModels,
@@ -605,7 +608,7 @@ export async function run(
         parallelAllocations: 1,
       },
     },
-    multiNetworks,
+    network,
   })
 
   // --------------------------------------------------------------------------------
@@ -628,9 +631,7 @@ export async function run(
 
   await createSyncingServer({
     logger,
-    networkSubgraphs: await multiNetworks.map(
-      async network => network.networkSubgraph,
-    ),
+    networkSubgraph: network.networkSubgraph,
     port: argv.syncingPort,
   })
   logger.info(`Successfully launched syncing server`)
@@ -638,10 +639,10 @@ export async function run(
   // --------------------------------------------------------------------------------
   // * Operator
   // --------------------------------------------------------------------------------
-  const operators: Operator[] = await pMap(
-    networkSpecifications,
-    async (spec: NetworkSpecification) =>
-      new Operator(logger, indexerManagementClient, spec),
+  const operator = new Operator(
+    logger,
+    indexerManagementClient,
+    networkSpecification,
   )
 
   // --------------------------------------------------------------------------------
@@ -651,9 +652,9 @@ export async function run(
     logger,
     metrics,
     graphNode,
-    operators,
+    operator,
     indexerManagement: indexerManagementClient,
-    networks,
+    network,
     deploymentManagement: argv.deploymentManagement,
     autoMigrationSupport: argv.enableAutoMigrationSupport,
     offchainSubgraphs: argv.offchainSubgraphs.map(
