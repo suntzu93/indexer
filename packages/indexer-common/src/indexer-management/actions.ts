@@ -368,7 +368,7 @@ export class ActionManager {
         }
         // This will return all results if successful, if failed it will return the failed actions
 
-        results = await allocationManager.executeBatch(
+        results = await this.allocationManager.executeBatch(
           prioritizedActions,
           onFinishedDeploying,
         )
