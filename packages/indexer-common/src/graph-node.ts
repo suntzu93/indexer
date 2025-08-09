@@ -692,9 +692,6 @@ export class GraphNode {
         })
         await this.resume(deployment)
       } else {
-        // Subgraph deployment not found
-        await this.autoGraftDeployDependencies(deployment, deploymentAssignments, name)
-
         // Create and deploy the subgraph
         this.logger.debug(
           'Subgraph deployment not found, creating subgraph name and deploying...',
@@ -705,6 +702,8 @@ export class GraphNode {
         )
         await this.create(name)
         await this.deploy(name, deployment)
+        // Subgraph deployment not found
+        // await this.autoGraftDeployDependencies(deployment, deploymentAssignments, name)
       }
     } catch (error) {
       if (!(error instanceof IndexerError)) {
@@ -829,8 +828,8 @@ export class GraphNode {
       let deployed: SubgraphDeploymentAssignment[] = []
       let attempt = 0
 
-      const maxAttempts = 5
-      const waitTimeMs = 3000
+      const maxAttempts = 2
+      const waitTimeMs = 60000
 
       // wait and poll for the assignment to be created.
       while (attempt < maxAttempts) {
