@@ -201,11 +201,6 @@ const caip2ByChainId: { [key: number]: string } = {
   56288: 'eip155:56288',
   7777777: 'eip155:7777777',
   34443: 'eip155:34443',
-  30: 'eip155:30',
-  1101: 'eip155:1101',
-  324: 'eip155:324',
-  146: 'eip155:146',
-  84532: 'eip155:84532',
 }
 
 const caip2ByChainAlias: { [key: string]: string } = {
@@ -351,4 +346,18 @@ export async function validateProviderNetworkIdentifier(
     })
     throw new Error(errorMsg)
   }
+}
+
+// Convenience function to check if a given network identifier is a supported Layer-1 protocol network
+export function networkIsL1(networkIdentifier: string): boolean {
+  // Normalize network identifier
+  networkIdentifier = resolveChainId(networkIdentifier)
+  return networkIdentifier === 'eip155:1' || networkIdentifier === 'eip155:11155111'
+}
+
+// Convenience function to check if a given network identifier is a supported Layer-2 protocol network
+export function networkIsL2(networkIdentifier: string): boolean {
+  // Normalize network identifier
+  networkIdentifier = resolveChainId(networkIdentifier)
+  return networkIdentifier === 'eip155:42161' || networkIdentifier === 'eip155:421614'
 }
